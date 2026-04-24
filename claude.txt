@@ -1,0 +1,565 @@
+================================================================
+   100+ CLAUDE & CLAUDE CODE GITHUB REPOSITORIES (2026)
+================================================================
+Complete list of the best GitHub repos for Claude & Claude Code
+Generated: April 2026
+================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY 1: OFFICIAL ANTHROPIC REPOSITORIES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.  NAME: claude-code (Official CLI)
+    URL : https://github.com/anthropics/claude-code
+    DESC: Official Claude Code CLI — agentic coding tool that lives in your terminal
+
+2.  NAME: anthropic-cookbook
+    URL : https://github.com/anthropics/anthropic-cookbook
+    DESC: Official examples, recipes, and guides for building with Claude API
+
+3.  NAME: anthropic-quickstarts
+    URL : https://github.com/anthropics/anthropic-quickstarts
+    DESC: Comprehensive dev guides for AI-powered demo projects with standardized workflows
+
+4.  NAME: claude-code-action
+    URL : https://github.com/anthropics/claude-code-action
+    DESC: Official GitHub Action — run Claude Code directly in your CI/CD pipeline
+
+5.  NAME: model-context-protocol
+    URL : https://github.com/anthropics/model-context-protocol
+    DESC: Official MCP specification and SDK for connecting AI models to tools
+
+6.  NAME: claude-code-base-action
+    URL : https://github.com/anthropics/claude-code-base-action
+    DESC: Base GitHub Action for running Claude Code in automated workflows
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY 2: COMMUNITY CURATED LISTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+7.  NAME: awesome-claude-code
+    URL : https://github.com/hesreallyhim/awesome-claude-code
+    STARS: 30.9k
+    DESC: Curated list of skills, hooks, slash-commands, agents, and plugins
+
+8.  NAME: awesome-claude-code-toolkit
+    URL : https://github.com/rohitg00/awesome-claude-code-toolkit
+    STARS: Trending (#1 Feb 2026)
+    DESC: 135 agents, 35 skills, 42 commands, 176+ plugins, 20 hooks, 14 MCP configs
+
+9.  NAME: awesome-claude-plugins
+    URL : https://github.com/quemsah/awesome-claude-plugins
+    DESC: Automated collection of Claude Code plugin metrics — 13,501 repos indexed
+
+10. NAME: awesome-claude-code (jqueryscript)
+    URL : https://github.com/jqueryscript/awesome-claude-code
+    DESC: Curated list of tools, IDE integrations, frameworks for Claude Code
+
+11. NAME: awesome-claude-code-plugins
+    URL : https://github.com/ccplugins/awesome-claude-code-plugins
+    DESC: Slash commands, subagents, MCP servers, and hooks for Claude Code
+
+12. NAME: Claude-Code-Repos-Index
+    URL : https://github.com/danielrosehill/Claude-Code-Repos-Index
+    DESC: Index of 75+ Claude Code repos — CMS, IoT, health, agentic workflows
+
+13. NAME: awesome-chatgpt-prompts (multi-LLM)
+    URL : https://github.com/f/awesome-chatgpt-prompts
+    STARS: 115k
+    DESC: Curated prompts community — now multi-LLM including Claude
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY 3: AGENT SKILLS & FRAMEWORKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+14. NAME: superpowers
+    URL : https://github.com/obra/superpowers
+    STARS: 94k
+    DESC: TDD-enforced dev framework — 7-phase workflow (Brainstorm > Spec > Plan > TDD...)
+
+15. NAME: everything-claude-code
+    URL : https://github.com/affaan-m/everything-claude-code
+    STARS: 128k
+    DESC: Complete library of 136 skills and 30 agents covering every domain
+
+16. NAME: claude-scientific-skills
+    URL : https://github.com/K-Dense-AI/claude-scientific-skills
+    DESC: Ready-to-use agent skills for research, science, engineering, finance, writing
+
+17. NAME: compound-engineering-plugin
+    URL : https://github.com/EveryInc/compound-engineering-plugin
+    DESC: Agents/skills/commands — turns past mistakes into future improvement protocols
+
+18. NAME: context-engineering-kit
+    URL : https://github.com/NeoLabHQ/context-engineering-kit
+    DESC: Advanced context engineering techniques with minimal token footprint
+
+19. NAME: taches-cc-resources
+    URL : https://github.com/glittercowboy/taches-cc-resources
+    DESC: Balanced sub-agents, skills, commands — meta-skills like skill-auditor
+
+20. NAME: cc-devops-skills
+    URL : https://github.com/akin-ozer/cc-devops-skills
+    DESC: Detailed DevOps skills — IaC code for any platform, validations, generators
+
+21. NAME: claude-codex-settings
+    URL : https://github.com/fcakyon/claude-codex-settings
+    DESC: Plugins for GitHub, Azure, MongoDB, Tavily, Playwright — multi-provider
+
+22. NAME: fullstack-dev-skills (jeffallan)
+    URL : https://github.com/jeffallan/claude-skills
+    DESC: 65 skills for full-stack dev across frameworks + Jira/Confluence commands
+
+23. NAME: claude-infrastructure-showcase
+    URL : https://github.com/diet103/claude-code-infrastructure-showcase
+    DESC: Innovative skill selection via hooks — Claude auto-activates the right skill
+
+24. NAME: trail-of-bits-skills
+    URL : https://github.com/trailofbits/skills
+    DESC: Professional security skills — CodeQL, Semgrep, vulnerability detection
+
+25. NAME: book-factory (robert guss)
+    URL : https://github.com/robertguss/claude-skills
+    DESC: Publishing pipeline replicating traditional nonfiction book creation
+
+26. NAME: obsidian-skills
+    URL : https://github.com/kepano/obsidian-skills
+    DESC: Bridge Claude Code with Obsidian — auto-tagging, linking, vault structure
+
+27. NAME: claude-mountaineering-skills
+    URL : https://github.com/dreamiurg/claude-mountaineering-skills
+    DESC: Automates mountain route research from 10+ sources — weather, avalanche, trips
+
+28. NAME: skill-codex
+    URL : https://github.com/skills-directory/skill-codex
+    DESC: Use Codex from Claude Code — infers model, reasoning effort, sandboxing
+
+29. NAME: web-asset-generator
+    URL : https://github.com/alonw0/web-asset-generator
+    DESC: Generate favicons, PWA icons, Open Graph images from Claude Code
+
+30. NAME: ay-skills
+    URL : https://github.com/ayautomate/ay-skills
+    DESC: 10 battle-tested production skills — SEO, browser automation, video, diagrams
+
+31. NAME: ContextKit
+    URL : https://github.com/Cihat-Gunduz/ContextKit
+    DESC: Systematic dev framework turning Claude Code into a proactive dev partner
+
+32. NAME: read-only-postgres-skill
+    URL : https://github.com/jawwadfirdousi/agent-skills
+    DESC: Read-only PostgreSQL query skill with strict validation and timeouts
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY 4: AGENT ORCHESTRATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+33. NAME: agentsys
+    URL : https://github.com/avifenesh/agentsys
+    DESC: Workflow automation — PR mgmt, code cleanup, drift detection, multi-agent review
+
+34. NAME: gstack (Garry Tan Setup)
+    URL : https://github.com/gtanczyk/gstack
+    DESC: Claude Code as an AI team — CEO, Designer, EM, Release Mgr, QA agent roles
+
+35. NAME: claude-code-pm (ccpm)
+    URL : https://github.com/automazeio/ccpm
+    DESC: Comprehensive project management workflow with specialized agents + slash-commands
+
+36. NAME: claude-code-agents
+    URL : https://github.com/undeadlist/claude-code-agents
+    DESC: E2E dev workflow — parallel auditors, fix cycles, browser QA, AI safety protocols
+
+37. NAME: ab-method
+    URL : https://github.com/ayoubben18/ab-method
+    DESC: Spec-driven workflow — transforms large problems into focused missions via sub-agents
+
+38. NAME: ralph-for-claude-code
+    URL : https://github.com/frank-bria/ralph-for-claude-code
+    DESC: Autonomous AI dev framework with rate limiting, circuit breaker, 75+ tests
+
+39. NAME: ralph-orchestrator
+    URL : https://github.com/mikeyobrien/ralph-orchestrator
+    DESC: Ralph Wiggum technique — runs AI agent until all PRD items are complete
+
+40. NAME: ralph-wiggum-bdd
+    URL : https://github.com/marcindulak/ralph-wiggum-bdd
+    DESC: Standalone Bash script for BDD with Ralph Wiggum Loop
+
+41. NAME: ralph-wiggum-marketer
+    URL : https://github.com/search?q=ralph-wiggum-marketer
+    DESC: Autonomous AI copywriter integrating Ralph loop with market research agents
+
+42. NAME: multi-agent-squad
+    URL : https://github.com/search?q=multi-agent-squad+claude
+    DESC: Production-ready multi-agent orchestration framework for Claude Code
+
+43. NAME: claude-code-heavy
+    URL : https://github.com/search?q=claude-code-heavy
+    DESC: Multi-agent research orchestration using Claude Code
+
+44. NAME: claude-code-semantic-memory
+    URL : https://github.com/search?q=claude-code-semantic-memory
+    DESC: Persistent semantic memory system for Claude Code sessions
+
+45. NAME: claude-user-memory
+    URL : https://github.com/search?q=claude-user-memory
+    DESC: Orchestration of 12 specialized AI agents for Claude Code CLI
+
+46. NAME: Agent-Fusion
+    URL : https://github.com/search?q=Agent-Fusion+claude
+    DESC: Claude Code, Codex CLI, Amazon Q, Gemini Code Assist collaborate bidirectionally
+
+47. NAME: claude-code-studio
+    URL : https://github.com/search?q=claude-code-studio
+    STARS: 190
+    DESC: 40+ specialized AI agents, MCP integrations, enterprise-grade workflows
+
+48. NAME: claude-agent-server
+    URL : https://github.com/search?q=claude-agent-server
+    STARS: 140
+    DESC: Skill enabling Claude to use Gemini 3 Pro via Gemini CLI
+
+49. NAME: sub-agents.directory
+    URL : https://github.com/search?q=sub-agents+claude+directory
+    DESC: 100+ sub-agent prompts and MCP servers for Claude Code
+
+50. NAME: sudocode
+    URL : https://github.com/sudocode-ai/sudocode
+    DESC: Lightweight agent orchestration dev tool with specification framework integration
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY 5: HOOKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+51. NAME: claude-code-hooks-mastery
+    URL : https://github.com/disler/claude-code-hooks-mastery
+    DESC: Master all 13 Claude Code hook events — TTS, security, logging, subagents
+
+52. NAME: Dippy (auto-approve hooks)
+    URL : https://github.com/ldayton/Dippy
+    DESC: Auto-approve safe bash commands via AST parsing, prompt for destructive ops
+
+53. NAME: parry (injection scanner)
+    URL : https://github.com/vaporif/parry
+    DESC: Prompt injection scanner for Claude Code hooks — scans for secrets, exfiltration
+
+54. NAME: claude-code-boost
+    URL : https://github.com/search?q=claude-code-boost
+    STARS: 160
+    DESC: Hook utilities for Claude Code with intelligent auto-approval
+
+55. NAME: claude-loop
+    URL : https://github.com/search?q=claude-loop+autonomous
+    DESC: Autonomous task queues with 19+ guard/lifecycle hooks and investigation workflow
+
+56. NAME: tdd-guard
+    URL : https://github.com/search?q=tdd-guard+claude
+    STARS: 1.7k
+    DESC: Automated TDD enforcement for Claude Code via hooks
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY 6: MCP SERVERS & INTEGRATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+57. NAME: modelcontextprotocol/servers
+    URL : https://github.com/modelcontextprotocol/servers
+    DESC: Reference MCP server implementations — filesystem, GitHub, Slack, PostgreSQL
+
+58. NAME: mcp-framework
+    URL : https://github.com/mcpframework/mcp-framework
+    DESC: Fullstack MCP framework to develop MCP Apps for ChatGPT/Claude and agents
+
+59. NAME: aws-mcp-server
+    URL : https://github.com/alexei-led/aws-mcp-server
+    DESC: MCP server for AWS — Python setup, error handling, security for CLI
+
+60. NAME: dagger (Docker MCP)
+    URL : https://github.com/dagger/dagger
+    DESC: Docker-based MCP multiplexer — 60+ tools, 97% token reduction
+
+61. NAME: claude-context-mode
+    URL : https://github.com/search?q=claude-context-mode
+    STARS: 2.2k
+    DESC: MCP server between Claude Code and tool outputs — 315KB becomes 5.4KB (98% reduction)
+
+62. NAME: claude-context-local
+    URL : https://github.com/search?q=claude-context-local
+    STARS: 154
+    DESC: Code search MCP — full codebase as context, local embeddings, no API cost
+
+63. NAME: jina-reader-mcp
+    URL : https://github.com/search?q=jina+reader+mcp+claude
+    DESC: MCP server for web reading and search — feed live web content to Claude Code
+
+64. NAME: Docker-Bedrock-Gateway
+    URL : https://github.com/search?q=docker+mcp+proxy+claude
+    DESC: Self-hosted API gateway routing Claude Code through Amazon Bedrock — SSO, SCIM
+
+65. NAME: Gemini-Claude-Bridge
+    URL : https://github.com/search?q=gemini+claude+protocol+converter
+    DESC: Gemini-to-Claude protocol converter for using Gemini models as Claude Code backend
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY 7: TOOLS & UTILITIES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+66. NAME: repomix
+    URL : https://github.com/yamadashy/repomix
+    STARS: 20.9k
+    DESC: Pack entire codebase into one AI-readable file — also at repomix.com
+
+67. NAME: ccusage
+    URL : https://github.com/ryoppippi/ccusage
+    DESC: CLI tool for analyzing Claude Code token usage from local logs
+
+68. NAME: claude-tmux
+    URL : https://github.com/nielsgroen/claude-tmux
+    DESC: Manage Claude Code within tmux — all instances in popup, git worktree support
+
+69. NAME: claude-esp
+    URL : https://github.com/phiat/claude-esp
+    DESC: Go-based TUI streaming Claude Code's hidden output — thinking, tool calls
+
+70. NAME: omnara
+    URL : https://github.com/Ishaan-Sehgal/omnara
+    DESC: Command center syncing Claude Code sessions across terminal, web, mobile
+
+71. NAME: claudekit
+    URL : https://github.com/Carl-Rannaberg/claudekit
+    DESC: CLI toolkit — auto-save checkpointing, code quality hooks, 20+ subagents
+
+72. NAME: claude-session-restore
+    URL : https://github.com/ZENG3LD/claude-session-restore
+    DESC: Restore context from previous Claude Code sessions — handles up to 2GB files
+
+73. NAME: claude-code-tools (Prasad)
+    URL : https://github.com/Prasad-Chalasani/claude-code-tools
+    DESC: Session continuity — avoid compaction, recover context with cross-agent handoff
+
+74. NAME: container-use (Dagger)
+    URL : https://github.com/dagger/container-use
+    DESC: Development environments for coding agents — isolated, safe, independent
+
+75. NAME: claude-self-reflect
+    URL : https://github.com/search?q=claude-self-reflect
+    STARS: 189
+    DESC: Claude forgets everything. This fixes that — persistent self-reflection system
+
+76. NAME: cctrace
+    URL : https://github.com/search?q=cctrace+claude
+    STARS: 140
+    DESC: Export Claude Code chat sessions into markdown and XML
+
+77. NAME: claude-config-editor
+    URL : https://github.com/search?q=claude-config-editor
+    STARS: 150
+    DESC: Lightweight web tool to clean/optimize Claude Code config files
+
+78. NAME: Continuous-Claude-v2
+    URL : https://github.com/search?q=Continuous-Claude-v2
+    STARS: 2.2k
+    DESC: Context management — hooks with ledgers, handoffs, isolated context windows
+
+79. NAME: cc-sessions
+    URL : https://github.com/search?q=cc-sessions+claude
+    STARS: 1.5k
+    DESC: Extension set — hooks, subagents, commands, task/git management infrastructure
+
+80. NAME: ccundo
+    URL : https://github.com/search?q=ccundo+claude
+    STARS: 1.3k
+    DESC: Granular undo by reading directly from Claude Code session files
+
+81. NAME: cc-mirror
+    URL : https://github.com/search?q=cc-mirror+claude
+    STARS: 1.3k
+    DESC: Multiple isolated Claude Code variants with custom providers
+
+82. NAME: claude-code.el (Emacs)
+    URL : https://github.com/stevemolitor/claude-code.el
+    DESC: Emacs interface for Claude Code CLI
+
+83. NAME: claude-code.nvim (Neovim)
+    URL : https://github.com/greggh/claude-code.nvim
+    DESC: Seamless integration between Claude Code and Neovim
+
+84. NAME: Claudix (VSCode)
+    URL : https://github.com/search?q=Claudix+claude+vscode
+    DESC: VSCode extension — Claude Code in editor with chat, sessions, streaming (Vue 3)
+
+85. NAME: Clawd-on-Desk
+    URL : https://github.com/search?q=clawd-on-desk
+    DESC: Desktop pet that reacts to Claude Code sessions — thinking, typing, juggling
+
+86. NAME: zed (code editor)
+    URL : https://github.com/zed-industries/zed
+    STARS: 47k
+    DESC: High-performance code editor with native Claude integration
+
+87. NAME: continue (VS Code / JetBrains)
+    URL : https://github.com/continuedev/continue
+    STARS: 20k
+    DESC: Open-source AI code assistant supporting Claude for VS Code and JetBrains
+
+88. NAME: aider
+    URL : https://github.com/paul-gauthier/aider
+    STARS: 22k
+    DESC: AI pair programming in terminal — supports Claude models, git-native workflow
+
+89. NAME: litellm
+    URL : https://github.com/BerriAI/litellm
+    STARS: 15k
+    DESC: Call all LLM APIs using OpenAI format — Claude, GPT, Gemini, Llama in one
+
+90. NAME: AI IntelliJ Plugin
+    URL : https://github.com/search?q=didalgolab+ai+intellij
+    DESC: IntelliJ plugin with Gradle commands, coding patterns, i18n standards
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY 8: GUIDES & LEARNING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+91. NAME: system-prompts-and-models-of-ai-tools
+    URL : https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools
+    DESC: Exposed system prompts from Claude Code, Cursor, Devin, Windsurf, Perplexity
+
+92. NAME: Claude-Code-Everything-You-Need-to-Know
+    URL : https://github.com/wesammustafa/Claude-Code-Everything-You-Need-to-Know
+    DESC: Ultimate all-in-one guide — setup, hooks, MCP, BMAD method, workflows
+
+93. NAME: claude-code-system-prompts (Piebald AI)
+    URL : https://github.com/Piebald-AI/claude-code-system-prompts
+    DESC: All parts of Claude Code's system prompt, updated for every version
+
+94. NAME: claude-code-tips (ykdojo)
+    URL : https://github.com/ykdojo/claude-code-tips
+    DESC: 35+ Claude Code tips — voice input, system prompt patching, multi-model
+
+95. NAME: agentic-workflow-patterns
+    URL : https://github.com/ThibautMelen/agentic-workflow-patterns
+    DESC: Agentic patterns from Anthropic docs with Mermaid diagrams and code examples
+
+96. NAME: claude-code-handbook
+    URL : https://github.com/nikiforovall/claude-code-rules
+    DESC: Best practices, tips, techniques, distributable plugins for Claude Code
+
+97. NAME: claude-code-docs (mirror)
+    URL : https://github.com/ericbuess/claude-code-docs
+    DESC: Mirror of Anthropic's Claude Code docs — updated every few hours
+
+98. NAME: ralph-playbook
+    URL : https://github.com/claytonfarr/ralph-playbook
+    DESC: Detailed guide to the Ralph Wiggum technique with theory and practice
+
+99. NAME: BMAD-Method
+    URL : https://github.com/search?q=BMAD+method+claude
+    DESC: BMAD Method — structured AI-driven development methodology for Claude Code
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY 9: TEMPLATES & CONFIG
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+100. NAME: claude-code-showcase
+     URL : https://github.com/ChrisWiles/claude-code-showcase
+     DESC: Complete project config — hooks, skills, agents, commands, GitHub Actions, JIRA
+
+101. NAME: claude-toolbox (serpro69)
+     URL : https://github.com/serpro69/claude-toolbox
+     DESC: Starter template with pre-configured MCP servers — Claude Code, Serena, Task Master
+
+102. NAME: CLAUDE.md (Karpathy-inspired)
+     URL : https://github.com/search?q=CLAUDE.md+karpathy
+     DESC: Single CLAUDE.md to improve Claude Code behavior from Andrej Karpathy's LLM pitfalls
+
+103. NAME: blogging-platform-commands
+     URL : https://github.com/cloudartisan/cloudartisan.github.io
+     DESC: Commands for publishing/maintaining a blog — create posts, manage media
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CATEGORY 10: WORKFLOW AUTOMATION & OTHER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+104. NAME: n8n
+     URL : https://github.com/n8n-io/n8n
+     STARS: 183k
+     DESC: Visual workflow automation — 183k stars, native Claude/AI support
+
+105. NAME: dify
+     URL : https://github.com/langgenius/dify
+     STARS: 130k
+     DESC: Visual AI workflow building — 130k+ stars, connect Claude to any data or API
+
+106. NAME: Flowise
+     URL : https://github.com/FlowiseAI/Flowise
+     STARS: 32k
+     DESC: Drag-and-drop LLM flow builder — supports Claude, visual agent design
+
+107. NAME: claude-hub (webhook)
+     URL : https://github.com/claude-did-this/claude-hub
+     DESC: Webhook connecting Claude Code to GitHub repos via @mentions in PRs/issues
+
+108. NAME: claude-code-pm-workflow
+     URL : https://github.com/search?q=claude+code+project+management+workflow
+     DESC: Claude Code PM workflow with numerous specialized agents
+
+109. NAME: claude-loop-autonomous
+     URL : https://github.com/search?q=claude+loop+autonomous+agent
+     DESC: Autonomous loop running Claude Code repeatedly until completion
+
+
+================================================================
+ QUICK INSTALL COMMAND (install skills globally)
+================================================================
+
+  git clone <REPO_URL> ~/.claude/skills/<skill-name>
+
+  Example:
+  git clone https://github.com/obra/superpowers ~/.claude/skills/superpowers
+
+
+================================================================
+ SUGGESTED VIRAL REPO NAME FOR YOUR MERGED COLLECTION
+================================================================
+
+  >> awesome-claude-universe <<
+
+  Description:
+  "The ultimate collection of 100+ Claude Code repos, skills,
+   agents, hooks, MCP configs & tools — all in one place."
+
+  Suggested README structure:
+  awesome-claude-universe/
+  ├── README.md          ← Star magnet with badges
+  ├── skills/            ← Merged skill files
+  ├── agents/            ← Agent configs
+  ├── hooks/             ← Hooks collection
+  ├── mcp-configs/       ← MCP integrations
+  ├── prompts/           ← System prompts
+  └── workflows/         ← Ready-made workflows
+
+
+================================================================
+ STATS SUMMARY
+================================================================
+
+  Total repos listed : 109+
+  Categories         : 10
+  Official repos     : 6
+  Combined stars     : 500,000+
+  All free & open    : YES
+
+================================================================
+  Sources: KDnuggets, awesome-claude-code, AY Automate, BSWEN
+  Last updated: April 2026
+================================================================
