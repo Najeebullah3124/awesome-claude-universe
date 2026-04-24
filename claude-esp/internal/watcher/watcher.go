@@ -1,0 +1,1569 @@
+package watcher
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/phiat/claude-esp/internal/parser"
+)
+
+const (
+	// DefaultPollInterval is how often to check for new content
+	DefaultPollInterval = 500 * time.Millisecond
+	// DefaultActiveWindow is how recent a session must be modified to be considered active
+	DefaultActiveWindow = 5 * time.Minute
+	// ItemChannelBuffer is the buffer size for the Items channel
+	ItemChannelBuffer = 100
+	// ErrorChannelBuffer is the buffer size for error channels
+	ErrorChannelBuffer = 10
+	// AutoSkipLineThreshold is the total line count above which we auto-skip history
+	// Each JSONL line is roughly one API turn; 100 lines ≈ 50 conversation exchanges
+	AutoSkipLineThreshold = 100
+	// KeepRecentLines is how many recent lines to show when auto-skipping
+	KeepRecentLines = 10
+	// CleanupInterval is how often to clean up stale file position entries
+	CleanupInterval = 5 * time.Minute
+	// FileReadBufferSize is the buffer size for reading files (32KB)
+	FileReadBufferSize = 32 * 1024
+	// ScannerInitBufferSize is the initial buffer for JSON line scanner (64KB)
+	ScannerInitBufferSize = 64 * 1024
+	// ScannerMaxBufferSize is the max buffer for JSON line scanner (10MB)
+	// Large because JSONL lines can contain base64-encoded images (screenshots).
+	// The scanner starts at ScannerInitBufferSize and only grows on demand.
+	ScannerMaxBufferSize = 10 * 1024 * 1024
+	// AgentIDDisplayLength is how many chars of agent ID to show in display name
+	AgentIDDisplayLength = 7
+	// RecentActivityThreshold is how recent a session must be to show as "active" in listings
+	RecentActivityThreshold = 2 * time.Minute
+	// DebounceInterval is how long to coalesce filesystem write events before reading
+	DebounceInterval = 50 * time.Millisecond
+)
+
+// getClaudeProjectsDir returns the path to Claude's projects directory.
+// It checks the CLAUDE_HOME environment variable first, falling back to ~/.claude.
+func getClaudeProjectsDir() (string, error) {
+	if claudeHome := os.Getenv("CLAUDE_HOME"); claudeHome != "" {
+		return filepath.Join(claudeHome, "projects"), nil
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home dir: %w", err)
+	}
+	return filepath.Join(homeDir, ".claude", "projects"), nil
+}
+
+// resolveProjectPath converts an encoded directory name back to a real path.
+// The encoded name like "-home-user-project-name" needs smart conversion because
+// directory names can contain dashes (e.g., "claude-esp-rs" should not become "claude/esp/rs").
+// We try progressively from right to left to find existing paths.
+func resolveProjectPath(encoded string) string {
+	encoded = strings.TrimPrefix(encoded, "-")
+	if encoded == "" {
+		return ""
+	}
+
+	parts := strings.Split(encoded, "-")
+	if len(parts) == 0 {
+		return encoded
+	}
+
+	// Try progressively joining segments from the right with dashes
+	// to find the actual directory name
+	for joinFrom := len(parts) - 1; joinFrom >= 1; joinFrom-- {
+		pathPart := strings.Join(parts[:joinFrom], "/")
+		dirPart := strings.Join(parts[joinFrom:], "-")
+		testPath := "/" + pathPart + "/" + dirPart
+
+		if _, err := os.Stat(testPath); err == nil {
+			return pathPart + "/" + dirPart
+		}
+	}
+
+	// Fallback to naive conversion
+	return strings.ReplaceAll(encoded, "-", "/")
+}
+
+// isMainSessionFile returns true if the path is a main session JSONL file
+// (not a subagent file, not a directory)
+func isMainSessionFile(path string, info os.FileInfo) bool {
+	if info.IsDir() {
+		return false
+	}
+	if !strings.HasSuffix(path, ".jsonl") {
+		return false
+	}
+	if strings.Contains(path, "/subagents/") {
+		return false
+	}
+	basename := filepath.Base(path)
+	if strings.HasPrefix(basename, "agent-") {
+		return false
+	}
+	return true
+}
+
+// Session represents a Claude Code session with its files
+type Session struct {
+	ID              string
+	ProjectPath     string
+	MainFile        string
+	Subagents       map[string]string          // agentID -> file path
+	SubagentTypes   map[string]string          // agentID -> agentType from .meta.json
+	BackgroundTasks map[string]*BackgroundTask // toolID -> task info
+	mu              sync.RWMutex               // protects Subagents, SubagentTypes and BackgroundTasks maps
+}
+
+// BackgroundTask represents a background task launched by an agent
+type BackgroundTask struct {
+	ToolID        string // e.g., "toolu_01XYZ..."
+	ParentAgentID string // which agent spawned this (empty = main)
+	ToolName      string // e.g., "Bash: npm install"
+	OutputPath    string // path to tool-results file
+	IsComplete    bool   // whether the task has finished
+}
+
+// NewAgentMsg signals when a new agent is discovered
+type NewAgentMsg struct {
+	SessionID string
+	AgentID   string
+	AgentType string
+}
+
+// NewSessionMsg signals when a new session is discovered
+type NewSessionMsg struct {
+	SessionID   string
+	ProjectPath string
+}
+
+// NewBackgroundTaskMsg signals when a new background task is discovered
+type NewBackgroundTaskMsg struct {
+	SessionID     string
+	ParentAgentID string
+	ToolID        string
+	ToolName      string
+	OutputPath    string
+	IsComplete    bool
+}
+
+// fileCtx maps a watched file path back to its session and agent context
+type fileCtx struct {
+	sessionID string
+	agentID   string // empty for main session file
+}
+
+// Watcher monitors Claude session files for new content
+type Watcher struct {
+	claudeDir         string
+	pollInterval      time.Duration
+	sessions          map[string]*Session
+	sessionsMu        sync.RWMutex     // protects sessions map
+	filePositions     map[string]int64 // track read position per file
+	filePosMu         sync.RWMutex     // protects filePositions map
+	Items             chan parser.StreamItem
+	Errors            chan error
+	NewAgent          chan NewAgentMsg
+	NewSession        chan NewSessionMsg
+	NewBackgroundTask chan NewBackgroundTaskMsg
+	ctx               context.Context
+	cancel            context.CancelFunc
+	watchActive       atomic.Bool   // if true, only watch recently modified sessions
+	activeWindow      time.Duration // how recent is "active"
+	maxSessions       int           // max sessions to track (0=unlimited)
+	skipHistory       atomic.Bool   // if true, start from end of files (live only)
+
+	// fsnotify fields
+	fsWatcher      *fsnotify.Watcher      // nil if using polling fallback
+	useFsnotify    bool                   // true if fsnotify initialized successfully
+	fileContexts   map[string]fileCtx     // path -> session/agent context for fsnotify events
+	fileCtxMu      sync.RWMutex           // protects fileContexts
+	debounceTimers map[string]*time.Timer // per-file write debounce timers
+	debounceMu     sync.Mutex             // protects debounceTimers
+}
+
+// New creates a new watcher for active sessions.
+// If pollInterval is 0, DefaultPollInterval is used.
+// If activeWindow is 0, DefaultActiveWindow is used.
+// If maxSessions is 0, no limit is applied.
+func New(sessionID string, pollInterval time.Duration, activeWindow time.Duration, maxSessions int) (*Watcher, error) {
+	claudeDir, err := getClaudeProjectsDir()
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	if pollInterval <= 0 {
+		pollInterval = DefaultPollInterval
+	}
+	if activeWindow <= 0 {
+		activeWindow = DefaultActiveWindow
+	}
+
+	w := &Watcher{
+		claudeDir:         claudeDir,
+		pollInterval:      pollInterval,
+		sessions:          make(map[string]*Session),
+		filePositions:     make(map[string]int64),
+		Items:             make(chan parser.StreamItem, ItemChannelBuffer),
+		Errors:            make(chan error, ErrorChannelBuffer),
+		NewAgent:          make(chan NewAgentMsg, ErrorChannelBuffer),
+		NewSession:        make(chan NewSessionMsg, ErrorChannelBuffer),
+		NewBackgroundTask: make(chan NewBackgroundTaskMsg, ErrorChannelBuffer),
+		ctx:               ctx,
+		cancel:            cancel,
+		activeWindow:      activeWindow,
+		maxSessions:       maxSessions,
+		fileContexts:      make(map[string]fileCtx),
+		debounceTimers:    make(map[string]*time.Timer),
+	}
+
+	// Try to initialize fsnotify; fall back to polling on failure
+	if fsw, err := fsnotify.NewWatcher(); err == nil {
+		w.fsWatcher = fsw
+		w.useFsnotify = true
+	}
+	w.watchActive.Store(sessionID == "") // watch all active if no specific session
+
+	if sessionID != "" {
+		// Watch a specific session (graceful — don't crash if not found yet)
+		session, err := w.findSession(sessionID)
+		if err == nil {
+			w.sessions[session.ID] = session
+		}
+		// If not found, watch loops will discover it
+	} else {
+		// Find all active sessions (ignore errors — dir may not exist yet)
+		_ = w.discoverActiveSessions()
+	}
+
+	return w, nil
+}
+
+// GetSessions returns a copy of all watched sessions
+func (w *Watcher) GetSessions() map[string]*Session {
+	w.sessionsMu.RLock()
+	defer w.sessionsMu.RUnlock()
+
+	// Return a copy to avoid race conditions
+	copy := make(map[string]*Session, len(w.sessions))
+	for k, v := range w.sessions {
+		copy[k] = v
+	}
+	return copy
+}
+
+// findSession finds a specific session by ID
+func (w *Watcher) findSession(sessionID string) (*Session, error) {
+	var jsonlFiles []string
+
+	err := filepath.Walk(w.claudeDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // skip errors
+		}
+		if isMainSessionFile(path, info) {
+			jsonlFiles = append(jsonlFiles, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk claude dir: %w", err)
+	}
+
+	if len(jsonlFiles) == 0 {
+		return nil, fmt.Errorf("no session files found in %s", w.claudeDir)
+	}
+
+	// Sort by modification time (most recent first)
+	sort.Slice(jsonlFiles, func(i, j int) bool {
+		infoI, _ := os.Stat(jsonlFiles[i])
+		infoJ, _ := os.Stat(jsonlFiles[j])
+		if infoI == nil || infoJ == nil {
+			return false
+		}
+		return infoI.ModTime().After(infoJ.ModTime())
+	})
+
+	var mainFile string
+	if sessionID != "" {
+		// Find specific session
+		for _, f := range jsonlFiles {
+			if strings.Contains(f, sessionID) {
+				mainFile = f
+				break
+			}
+		}
+		if mainFile == "" {
+			return nil, fmt.Errorf("session %s not found", sessionID)
+		}
+	} else {
+		mainFile = jsonlFiles[0]
+	}
+
+	return w.buildSession(mainFile)
+}
+
+func (w *Watcher) buildSession(mainFile string) (*Session, error) {
+	base := filepath.Base(mainFile)
+	id := strings.TrimSuffix(base, ".jsonl")
+
+	// Extract project path from parent directory name
+	projectDir := filepath.Base(filepath.Dir(mainFile))
+	projectPath := resolveProjectPath(projectDir)
+
+	session := &Session{
+		ID:              id,
+		ProjectPath:     projectPath,
+		MainFile:        mainFile,
+		Subagents:       make(map[string]string),
+		SubagentTypes:   make(map[string]string),
+		BackgroundTasks: make(map[string]*BackgroundTask),
+	}
+
+	// Find subagent files
+	subagentDir := filepath.Join(filepath.Dir(mainFile), id, "subagents")
+	if entries, err := os.ReadDir(subagentDir); err == nil {
+		for _, entry := range entries {
+			if strings.HasSuffix(entry.Name(), ".jsonl") {
+				agentID := strings.TrimPrefix(strings.TrimSuffix(entry.Name(), ".jsonl"), "agent-")
+				jsonlPath := filepath.Join(subagentDir, entry.Name())
+				session.Subagents[agentID] = jsonlPath
+				if agentType := readAgentType(jsonlPath); agentType != "" {
+					session.SubagentTypes[agentID] = agentType
+				}
+			}
+		}
+	}
+
+	return session, nil
+}
+
+// discoveredSession is a temporary struct for sorting by modification time
+type discoveredSession struct {
+	session *Session
+	modTime time.Time
+}
+
+func (w *Watcher) discoverActiveSessions() error {
+	now := time.Now()
+
+	var discovered []discoveredSession
+
+	err := filepath.Walk(w.claudeDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !isMainSessionFile(path, info) {
+			return nil
+		}
+
+		// Check if recently modified
+		if now.Sub(info.ModTime()) > w.activeWindow {
+			return nil
+		}
+
+		session, err := w.buildSession(path)
+		if err != nil {
+			return nil
+		}
+
+		discovered = append(discovered, discoveredSession{session: session, modTime: info.ModTime()})
+		return nil
+	})
+
+	// Sort by most recent first and apply max-sessions cap
+	if len(discovered) > 1 {
+		sort.Slice(discovered, func(i, j int) bool {
+			return discovered[i].modTime.After(discovered[j].modTime)
+		})
+	}
+	if w.maxSessions > 0 && len(discovered) > w.maxSessions {
+		discovered = discovered[:w.maxSessions]
+	}
+
+	for _, d := range discovered {
+		w.sessions[d.session.ID] = d.session
+	}
+
+	return err
+}
+
+// SetSkipHistory configures the watcher to start from the end of files
+func (w *Watcher) SetSkipHistory(skip bool) {
+	w.skipHistory.Store(skip)
+}
+
+// RemoveSession removes a session from being watched
+func (w *Watcher) RemoveSession(sessionID string) {
+	w.sessionsMu.Lock()
+	delete(w.sessions, sessionID)
+	w.sessionsMu.Unlock()
+}
+
+// ToggleAutoDiscovery toggles automatic discovery of new sessions
+func (w *Watcher) ToggleAutoDiscovery() {
+	current := w.watchActive.Load()
+	w.watchActive.Store(!current)
+}
+
+// IsAutoDiscoveryEnabled returns whether auto-discovery is enabled
+func (w *Watcher) IsAutoDiscoveryEnabled() bool {
+	return w.watchActive.Load()
+}
+
+// ActivityInfo contains activity status for a session/agent
+type ActivityInfo struct {
+	SessionID    string
+	AgentID      string // empty for main
+	IsActive     bool
+	LastModified time.Time // file mod time — used to drive auto-collapse policy
+}
+
+// GetActivityInfo returns activity status for all watched sessions and agents
+// An agent is considered active if its file was modified within the given duration
+func (w *Watcher) GetActivityInfo(activeWithin time.Duration) []ActivityInfo {
+	var info []ActivityInfo
+	now := time.Now()
+
+	w.sessionsMu.RLock()
+	defer w.sessionsMu.RUnlock()
+
+	for _, session := range w.sessions {
+		// Check main file
+		if fi, err := os.Stat(session.MainFile); err == nil {
+			info = append(info, ActivityInfo{
+				SessionID:    session.ID,
+				AgentID:      "",
+				IsActive:     now.Sub(fi.ModTime()) < activeWithin,
+				LastModified: fi.ModTime(),
+			})
+		}
+
+		// Check subagent files
+		session.mu.RLock()
+		for agentID, path := range session.Subagents {
+			if fi, err := os.Stat(path); err == nil {
+				info = append(info, ActivityInfo{
+					SessionID:    session.ID,
+					AgentID:      agentID,
+					IsActive:     now.Sub(fi.ModTime()) < activeWithin,
+					LastModified: fi.ModTime(),
+				})
+			}
+		}
+		session.mu.RUnlock()
+	}
+
+	return info
+}
+
+// Start begins watching for new content
+func (w *Watcher) Start() {
+	if w.useFsnotify {
+		go w.watchLoopFsnotify()
+	} else {
+		go w.watchLoopPolling()
+	}
+}
+
+// Stop stops the watcher
+func (w *Watcher) Stop() {
+	w.cancel()
+	if w.fsWatcher != nil {
+		w.fsWatcher.Close()
+	}
+	// Cancel all pending debounce timers
+	w.debounceMu.Lock()
+	for _, timer := range w.debounceTimers {
+		timer.Stop()
+	}
+	w.debounceMu.Unlock()
+}
+
+// UsingFsnotify returns whether the watcher is using filesystem notifications
+func (w *Watcher) UsingFsnotify() bool {
+	return w.useFsnotify
+}
+
+// getSessionsSnapshot returns a copy of all sessions to avoid holding lock during iteration
+func (w *Watcher) getSessionsSnapshot() []*Session {
+	w.sessionsMu.RLock()
+	defer w.sessionsMu.RUnlock()
+	sessions := make([]*Session, 0, len(w.sessions))
+	for _, s := range w.sessions {
+		sessions = append(sessions, s)
+	}
+	return sessions
+}
+
+// initializeSessionReading reads or skips existing session content at startup
+func (w *Watcher) initializeSessionReading(sessions []*Session) {
+	shouldSkip := w.skipHistory.Load()
+	if !shouldSkip {
+		// Auto-skip if total line count exceeds threshold
+		totalLines := w.countTotalLines(sessions)
+		shouldSkip = totalLines > AutoSkipLineThreshold
+	}
+
+	if shouldSkip {
+		for _, session := range sessions {
+			w.skipToEndOfFiles(session)
+		}
+	} else {
+		for _, session := range sessions {
+			w.readSessionFiles(session)
+		}
+	}
+}
+
+// handlePollTick processes a single poll interval
+func (w *Watcher) handlePollTick() {
+	if w.watchActive.Load() {
+		w.checkForNewSessions()
+	}
+
+	for _, session := range w.getSessionsSnapshot() {
+		w.checkForNewSubagents(session)
+		w.checkForBackgroundTasks(session)
+		w.readSessionFiles(session)
+	}
+}
+
+// checkForBackgroundTasks discovers background tasks in tool-results/ directory
+func (w *Watcher) checkForBackgroundTasks(session *Session) {
+	toolResultsDir := filepath.Join(filepath.Dir(session.MainFile), session.ID, "tool-results")
+	entries, err := os.ReadDir(toolResultsDir)
+	if err != nil {
+		return // tool-results dir doesn't exist yet
+	}
+
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".txt") {
+			continue
+		}
+
+		// Extract tool ID from filename (e.g., "toolu_01XYZ.txt" -> "toolu_01XYZ")
+		toolID := strings.TrimSuffix(entry.Name(), ".txt")
+
+		// Check if we already know about this task
+		session.mu.RLock()
+		_, exists := session.BackgroundTasks[toolID]
+		session.mu.RUnlock()
+
+		if exists {
+			continue
+		}
+
+		outputPath := filepath.Join(toolResultsDir, entry.Name())
+
+		// Try to find which agent spawned this task by searching JSONL files
+		parentAgentID, toolName := w.findBackgroundTaskParent(session, toolID)
+
+		// Check if complete by looking for tool_result in JSONL
+		isComplete := w.isBackgroundTaskComplete(session, toolID)
+
+		task := &BackgroundTask{
+			ToolID:        toolID,
+			ParentAgentID: parentAgentID,
+			ToolName:      toolName,
+			OutputPath:    outputPath,
+			IsComplete:    isComplete,
+		}
+
+		session.mu.Lock()
+		session.BackgroundTasks[toolID] = task
+		session.mu.Unlock()
+
+		// Notify about new background task
+		select {
+		case w.NewBackgroundTask <- NewBackgroundTaskMsg{
+			SessionID:     session.ID,
+			ParentAgentID: parentAgentID,
+			ToolID:        toolID,
+			ToolName:      toolName,
+			OutputPath:    outputPath,
+			IsComplete:    isComplete,
+		}:
+		default:
+		}
+	}
+}
+
+// findBackgroundTaskParent searches JSONL files to find which agent spawned a tool
+func (w *Watcher) findBackgroundTaskParent(session *Session, toolID string) (parentAgentID string, toolName string) {
+	// Search main file first
+	if name := w.findToolInFile(session.MainFile, toolID); name != "" {
+		return "", name // spawned by main
+	}
+
+	// Search subagent files
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	for agentID, path := range session.Subagents {
+		if name := w.findToolInFile(path, toolID); name != "" {
+			return agentID, name
+		}
+	}
+
+	return "", "Background Task" // fallback name
+}
+
+// findToolInFile searches a JSONL file for a tool_use with the given ID
+func (w *Watcher) findToolInFile(path string, toolID string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, ScannerInitBufferSize)
+	scanner.Buffer(buf, ScannerMaxBufferSize)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		// Quick check if this line might contain our tool ID
+		if !strings.Contains(line, toolID) {
+			continue
+		}
+
+		// Parse to extract tool name
+		toolName := extractToolNameFromLine(line, toolID)
+		if toolName != "" {
+			return toolName
+		}
+	}
+
+	return ""
+}
+
+// extractToolNameFromLine extracts tool name from a JSONL line containing the tool ID
+func extractToolNameFromLine(line string, toolID string) string {
+	// Simple extraction: look for "name":"<toolname>" near the tool ID
+	// This is a simplified approach - could use full JSON parsing if needed
+
+	// Find tool_use block with this ID
+	if !strings.Contains(line, `"type":"tool_use"`) && !strings.Contains(line, `"type": "tool_use"`) {
+		return ""
+	}
+
+	// Look for name field - try common patterns
+	patterns := []string{`"name":"`, `"name": "`}
+	for _, pattern := range patterns {
+		idx := strings.Index(line, pattern)
+		if idx == -1 {
+			continue
+		}
+		start := idx + len(pattern)
+		end := strings.Index(line[start:], `"`)
+		if end > 0 {
+			name := line[start : start+end]
+			// Try to get a command/pattern for context
+			return formatToolName(name, line)
+		}
+	}
+
+	return ""
+}
+
+// formatToolName creates a display name like "Bash: npm install"
+func formatToolName(toolName string, line string) string {
+	// For Bash, try to extract the command
+	if toolName == "Bash" {
+		if cmd := extractField(line, "command"); cmd != "" {
+			if len(cmd) > 30 {
+				cmd = cmd[:30] + "..."
+			}
+			return "Bash: " + cmd
+		}
+	}
+
+	// Task (legacy) and Agent (current name) both carry a "description" field
+	if toolName == "Task" || toolName == "Agent" {
+		if desc := extractField(line, "description"); desc != "" {
+			if len(desc) > 30 {
+				desc = desc[:30] + "..."
+			}
+			return toolName + ": " + desc
+		}
+	}
+
+	return toolName
+}
+
+// extractField extracts a JSON field value (simple string extraction)
+func extractField(line string, field string) string {
+	patterns := []string{`"` + field + `":"`, `"` + field + `": "`}
+	for _, pattern := range patterns {
+		idx := strings.Index(line, pattern)
+		if idx == -1 {
+			continue
+		}
+		start := idx + len(pattern)
+		// Find the end quote, handling escaped quotes
+		end := start
+		for end < len(line) {
+			if line[end] == '"' && (end == start || line[end-1] != '\\') {
+				break
+			}
+			end++
+		}
+		if end > start {
+			return line[start:end]
+		}
+	}
+	return ""
+}
+
+// isBackgroundTaskComplete checks if a tool_result exists for the given tool ID
+func (w *Watcher) isBackgroundTaskComplete(session *Session, toolID string) bool {
+	// Check main file
+	if w.fileContainsToolResult(session.MainFile, toolID) {
+		return true
+	}
+
+	// Check subagent files
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	for _, path := range session.Subagents {
+		if w.fileContainsToolResult(path, toolID) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// fileContainsToolResult checks if a file contains a tool_result for the given tool ID
+func (w *Watcher) fileContainsToolResult(path string, toolID string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, ScannerInitBufferSize)
+	scanner.Buffer(buf, ScannerMaxBufferSize)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, toolID) && strings.Contains(line, `"tool_result"`) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// watchLoopPolling is the original polling-based watch loop, used as fallback
+func (w *Watcher) watchLoopPolling() {
+	ticker := time.NewTicker(w.pollInterval)
+	defer ticker.Stop()
+
+	cleanupTicker := time.NewTicker(CleanupInterval)
+	defer cleanupTicker.Stop()
+
+	w.initializeSessionReading(w.getSessionsSnapshot())
+
+	for {
+		select {
+		case <-w.ctx.Done():
+			return
+		case <-cleanupTicker.C:
+			w.cleanupFilePositions()
+		case <-ticker.C:
+			w.handlePollTick()
+		}
+	}
+}
+
+// watchLoopFsnotify uses OS-native filesystem notifications for real-time streaming
+func (w *Watcher) watchLoopFsnotify() {
+	cleanupTicker := time.NewTicker(CleanupInterval)
+	defer cleanupTicker.Stop()
+
+	// Set up directory watches for discovery
+	if _, err := os.Stat(w.claudeDir); err == nil {
+		w.addDirectoryWatches(w.claudeDir)
+	} else {
+		w.watchAncestorDirectory(w.claudeDir)
+	}
+
+	// Register file watches for all known sessions
+	sessions := w.getSessionsSnapshot()
+	w.initializeSessionReading(sessions)
+	for _, session := range sessions {
+		w.registerSessionWatches(session)
+	}
+
+	for {
+		select {
+		case <-w.ctx.Done():
+			return
+
+		case event, ok := <-w.fsWatcher.Events:
+			if !ok {
+				return
+			}
+			w.handleFsEvent(event)
+
+		case err, ok := <-w.fsWatcher.Errors:
+			if !ok {
+				return
+			}
+			select {
+			case w.Errors <- fmt.Errorf("fsnotify: %w", err):
+			default:
+			}
+
+		case <-cleanupTicker.C:
+			w.cleanupFilePositions()
+		}
+	}
+}
+
+// watchAncestorDirectory watches the closest existing ancestor of a path
+func (w *Watcher) watchAncestorDirectory(target string) {
+	dir := target
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		if _, err := os.Stat(parent); err == nil {
+			w.fsWatcher.Add(parent)
+			return
+		}
+		dir = parent
+	}
+}
+
+// addDirectoryWatches recursively adds fsnotify watches on directories
+func (w *Watcher) addDirectoryWatches(root string) {
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			w.fsWatcher.Add(path)
+		}
+		return nil
+	})
+}
+
+// registerSessionWatches adds file watches and context for a session's files
+func (w *Watcher) registerSessionWatches(session *Session) {
+	// Watch and register main file
+	w.addFileWatch(session.MainFile, session.ID, "")
+
+	// Watch and register subagent files
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	for agentID, path := range session.Subagents {
+		w.addFileWatch(path, session.ID, agentID)
+	}
+}
+
+// addFileWatch adds an fsnotify watch on a file and registers its context
+func (w *Watcher) addFileWatch(path, sessionID, agentID string) {
+	w.fsWatcher.Add(path)
+
+	w.fileCtxMu.Lock()
+	w.fileContexts[path] = fileCtx{sessionID: sessionID, agentID: agentID}
+	w.fileCtxMu.Unlock()
+}
+
+// handleFsEvent processes a single filesystem event
+func (w *Watcher) handleFsEvent(event fsnotify.Event) {
+	path := event.Name
+
+	if event.Has(fsnotify.Create) {
+		w.handleFsCreate(path)
+	}
+
+	if event.Has(fsnotify.Write) {
+		w.handleFsWrite(path)
+	}
+}
+
+// handleFsCreate processes a file/directory creation event
+func (w *Watcher) handleFsCreate(path string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+
+	// New directory — add a watch so we catch files created inside it
+	if info.IsDir() {
+		w.fsWatcher.Add(path)
+		// Scan for files created before the watch was established.
+		// In-process agents (Agent Teams) create the subagents/ directory and
+		// write .jsonl files nearly simultaneously, so the file CREATE event
+		// fires before the watch is active and gets lost.
+		w.scanNewDirectory(path)
+		// If claude_dir was just created, switch to full recursive watch
+		if strings.HasPrefix(w.claudeDir, path) || path == w.claudeDir {
+			if _, err := os.Stat(w.claudeDir); err == nil {
+				w.addDirectoryWatches(w.claudeDir)
+				_ = w.discoverActiveSessions()
+			}
+		}
+		return
+	}
+
+	// New .jsonl file — could be a session or subagent
+	if strings.HasSuffix(path, ".jsonl") {
+		if strings.Contains(path, "/subagents/") {
+			// New subagent file
+			w.handleNewSubagentFile(path)
+		} else if w.watchActive.Load() {
+			// New main session file (only if auto-discovery is on)
+			w.handleNewSessionFile(path)
+		}
+		return
+	}
+
+	// New .txt in tool-results/ — background task output
+	if strings.HasSuffix(path, ".txt") && strings.Contains(path, "/tool-results/") {
+		w.handleNewToolResultFile(path)
+	}
+}
+
+// scanNewDirectory scans a newly watched directory for files that may have been
+// created before the fsnotify watch was established. This closes the race window
+// where in-process agents write files between directory creation and watch setup.
+// All discovery handlers are idempotent, so duplicate calls are safe no-ops.
+//
+// When a parent directory (e.g. <sessionID>/) and its children (e.g. subagents/)
+// are created simultaneously (mkdir -p style), the CREATE event for the child
+// directory fires before we add a watch on the parent, so it is lost. Recursing
+// into subdirectories here ensures we add watches and scan those children too.
+func (w *Watcher) scanNewDirectory(path string) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return
+	}
+
+	base := filepath.Base(path)
+	for _, entry := range entries {
+		fullPath := filepath.Join(path, entry.Name())
+		if entry.IsDir() {
+			// Add a watch and recurse: the CREATE event for this subdirectory
+			// may have been lost if it was created before the parent was watched.
+			w.fsWatcher.Add(fullPath)
+			w.scanNewDirectory(fullPath)
+			continue
+		}
+		name := entry.Name()
+		switch {
+		case base == "subagents" && strings.HasSuffix(name, ".jsonl"):
+			w.handleNewSubagentFile(fullPath)
+		case base == "tool-results" && strings.HasSuffix(name, ".txt"):
+			w.handleNewToolResultFile(fullPath)
+		}
+	}
+}
+
+// handleFsWrite processes a file write event with debouncing
+func (w *Watcher) handleFsWrite(path string) {
+	w.fileCtxMu.RLock()
+	ctx, ok := w.fileContexts[path]
+	w.fileCtxMu.RUnlock()
+	if !ok {
+		return // not a file we're tracking
+	}
+
+	w.debounceMu.Lock()
+	defer w.debounceMu.Unlock()
+
+	if timer, exists := w.debounceTimers[path]; exists {
+		timer.Reset(DebounceInterval)
+		return
+	}
+
+	sessionID := ctx.sessionID
+	agentID := ctx.agentID
+	agentType := w.lookupAgentType(sessionID, agentID)
+	w.debounceTimers[path] = time.AfterFunc(DebounceInterval, func() {
+		w.readFile(path, sessionID, agentID, agentType)
+		w.debounceMu.Lock()
+		delete(w.debounceTimers, path)
+		w.debounceMu.Unlock()
+	})
+}
+
+// handleNewSessionFile processes discovery of a new session JSONL file
+func (w *Watcher) handleNewSessionFile(path string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	if !isMainSessionFile(path, info) {
+		return
+	}
+
+	session, err := w.buildSession(path)
+	if err != nil {
+		return
+	}
+
+	w.sessionsMu.Lock()
+	if _, exists := w.sessions[session.ID]; exists {
+		w.sessionsMu.Unlock()
+		return
+	}
+	w.sessions[session.ID] = session
+	w.sessionsMu.Unlock()
+
+	w.registerSessionWatches(session)
+
+	select {
+	case w.NewSession <- NewSessionMsg{SessionID: session.ID, ProjectPath: session.ProjectPath}:
+	default:
+	}
+
+	// buildSession may have found subagents that already existed on disk.
+	// Emit NewAgentMsg for each so the TUI shows them. Without this, the
+	// idempotency check in handleNewSubagentFile would suppress the message
+	// (the agent is already in session.Subagents but the TUI was never told).
+	session.mu.RLock()
+	for agentID := range session.Subagents {
+		agentType := session.SubagentTypes[agentID]
+		select {
+		case w.NewAgent <- NewAgentMsg{SessionID: session.ID, AgentID: agentID, AgentType: agentType}:
+		default:
+		}
+	}
+	session.mu.RUnlock()
+}
+
+// lookupAgentType returns the stored agent type for a given session/agent pair.
+func (w *Watcher) lookupAgentType(sessionID, agentID string) string {
+	if agentID == "" {
+		return ""
+	}
+	w.sessionsMu.RLock()
+	session, exists := w.sessions[sessionID]
+	w.sessionsMu.RUnlock()
+	if !exists {
+		return ""
+	}
+	session.mu.RLock()
+	agentType := session.SubagentTypes[agentID]
+	session.mu.RUnlock()
+	return agentType
+}
+
+// readAgentType reads the .meta.json file corresponding to a .jsonl path
+// and returns the agentType value. Returns empty string if not available.
+func readAgentType(jsonlPath string) string {
+	metaPath := strings.TrimSuffix(jsonlPath, ".jsonl") + ".meta.json"
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		return ""
+	}
+	var meta struct {
+		AgentType string `json:"agentType"`
+	}
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return ""
+	}
+	return meta.AgentType
+}
+
+// handleNewSubagentFile processes discovery of a new subagent JSONL file
+func (w *Watcher) handleNewSubagentFile(path string) {
+	if !strings.HasSuffix(path, ".jsonl") {
+		return
+	}
+
+	agentID := strings.TrimPrefix(strings.TrimSuffix(filepath.Base(path), ".jsonl"), "agent-")
+
+	// Find which session owns this subagent by walking up the path:
+	// .../projects/<project>/<sessionID>/subagents/agent-<id>.jsonl
+	subagentsDir := filepath.Dir(path)
+	sessionDir := filepath.Dir(subagentsDir)
+	sessionID := filepath.Base(sessionDir)
+
+	w.sessionsMu.RLock()
+	session, exists := w.sessions[sessionID]
+	w.sessionsMu.RUnlock()
+	if !exists {
+		return
+	}
+
+	agentType := readAgentType(path)
+
+	session.mu.Lock()
+	if _, exists := session.Subagents[agentID]; exists {
+		session.mu.Unlock()
+		return
+	}
+	session.Subagents[agentID] = path
+	if agentType != "" {
+		session.SubagentTypes[agentID] = agentType
+	}
+	session.mu.Unlock()
+
+	w.addFileWatch(path, sessionID, agentID)
+
+	select {
+	case w.NewAgent <- NewAgentMsg{SessionID: sessionID, AgentID: agentID, AgentType: agentType}:
+	default:
+	}
+}
+
+// handleNewToolResultFile processes discovery of a new background task output file
+func (w *Watcher) handleNewToolResultFile(path string) {
+	if !strings.HasSuffix(path, ".txt") {
+		return
+	}
+
+	toolID := strings.TrimSuffix(filepath.Base(path), ".txt")
+
+	// Walk up: .../projects/<project>/<sessionID>/tool-results/<toolID>.txt
+	toolResultsDir := filepath.Dir(path)
+	sessionDir := filepath.Dir(toolResultsDir)
+	sessionID := filepath.Base(sessionDir)
+
+	w.sessionsMu.RLock()
+	session, exists := w.sessions[sessionID]
+	w.sessionsMu.RUnlock()
+	if !exists {
+		return
+	}
+
+	session.mu.RLock()
+	_, taskExists := session.BackgroundTasks[toolID]
+	session.mu.RUnlock()
+	if taskExists {
+		return
+	}
+
+	parentAgentID, toolName := w.findBackgroundTaskParent(session, toolID)
+	isComplete := w.isBackgroundTaskComplete(session, toolID)
+
+	task := &BackgroundTask{
+		ToolID:        toolID,
+		ParentAgentID: parentAgentID,
+		ToolName:      toolName,
+		OutputPath:    path,
+		IsComplete:    isComplete,
+	}
+
+	session.mu.Lock()
+	session.BackgroundTasks[toolID] = task
+	session.mu.Unlock()
+
+	select {
+	case w.NewBackgroundTask <- NewBackgroundTaskMsg{
+		SessionID:     sessionID,
+		ParentAgentID: parentAgentID,
+		ToolID:        toolID,
+		ToolName:      toolName,
+		OutputPath:    path,
+		IsComplete:    isComplete,
+	}:
+	default:
+	}
+}
+
+func (w *Watcher) checkForNewSessions() {
+	now := time.Now()
+
+	// Collect candidates first, then decide which to add
+	var candidates []discoveredSession
+
+	filepath.Walk(w.claudeDir, func(path string, info os.FileInfo, err error) error {
+		// Check for context cancellation to avoid goroutine leak
+		select {
+		case <-w.ctx.Done():
+			return filepath.SkipAll
+		default:
+		}
+
+		if err != nil {
+			return nil
+		}
+		if !isMainSessionFile(path, info) {
+			return nil
+		}
+
+		// Check if recently modified
+		if now.Sub(info.ModTime()) > w.activeWindow {
+			return nil
+		}
+
+		basename := filepath.Base(path)
+		id := strings.TrimSuffix(basename, ".jsonl")
+
+		w.sessionsMu.RLock()
+		_, exists := w.sessions[id]
+		w.sessionsMu.RUnlock()
+
+		if exists {
+			return nil
+		}
+
+		session, err := w.buildSession(path)
+		if err != nil {
+			return nil
+		}
+
+		candidates = append(candidates, discoveredSession{session: session, modTime: info.ModTime()})
+		return nil
+	})
+
+	if len(candidates) == 0 {
+		return
+	}
+
+	// Sort candidates by most recent first
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].modTime.After(candidates[j].modTime)
+	})
+
+	w.sessionsMu.Lock()
+	for _, c := range candidates {
+		// Enforce max-sessions cap
+		if w.maxSessions > 0 && len(w.sessions) >= w.maxSessions {
+			break
+		}
+
+		if _, exists := w.sessions[c.session.ID]; exists {
+			continue
+		}
+
+		w.sessions[c.session.ID] = c.session
+		w.sessionsMu.Unlock()
+
+		// Notify about new session
+		select {
+		case w.NewSession <- NewSessionMsg{SessionID: c.session.ID, ProjectPath: c.session.ProjectPath}:
+		default:
+		}
+
+		w.sessionsMu.Lock()
+	}
+	w.sessionsMu.Unlock()
+}
+
+func (w *Watcher) checkForNewSubagents(session *Session) {
+	subagentDir := filepath.Join(filepath.Dir(session.MainFile), session.ID, "subagents")
+	entries, err := os.ReadDir(subagentDir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".jsonl") {
+			agentID := strings.TrimPrefix(strings.TrimSuffix(entry.Name(), ".jsonl"), "agent-")
+			path := filepath.Join(subagentDir, entry.Name())
+
+			// Check and add with write lock to avoid TOCTOU race
+			agentType := readAgentType(path)
+
+			session.mu.Lock()
+			_, exists := session.Subagents[agentID]
+			if exists {
+				session.mu.Unlock()
+				continue
+			}
+			session.Subagents[agentID] = path
+			if agentType != "" {
+				session.SubagentTypes[agentID] = agentType
+			}
+			session.mu.Unlock()
+
+			select {
+			case w.NewAgent <- NewAgentMsg{SessionID: session.ID, AgentID: agentID, AgentType: agentType}:
+			default:
+			}
+		}
+	}
+}
+
+func (w *Watcher) countTotalLines(sessions []*Session) int {
+	var total int
+	for _, session := range sessions {
+		total += countFileLines(session.MainFile)
+		session.mu.RLock()
+		for _, path := range session.Subagents {
+			total += countFileLines(path)
+		}
+		session.mu.RUnlock()
+	}
+	return total
+}
+
+// countFileLines counts newlines in a file without parsing content
+func countFileLines(path string) int {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+
+	count := 0
+	buf := make([]byte, FileReadBufferSize)
+	for {
+		n, err := file.Read(buf)
+		for i := 0; i < n; i++ {
+			if buf[i] == '\n' {
+				count++
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	return count
+}
+
+func (w *Watcher) skipToEndOfFiles(session *Session) {
+	// Set position to near end of main file, keeping last N lines
+	mainPos := findPositionForLastNLines(session.MainFile, KeepRecentLines)
+
+	// Get subagent positions
+	session.mu.RLock()
+	subagentPaths := make([]string, 0, len(session.Subagents))
+	for _, path := range session.Subagents {
+		subagentPaths = append(subagentPaths, path)
+	}
+	session.mu.RUnlock()
+
+	subagentPositions := make(map[string]int64, len(subagentPaths))
+	for _, path := range subagentPaths {
+		subagentPositions[path] = findPositionForLastNLines(path, KeepRecentLines)
+	}
+
+	// Write all positions under lock
+	w.filePosMu.Lock()
+	w.filePositions[session.MainFile] = mainPos
+	for path, pos := range subagentPositions {
+		w.filePositions[path] = pos
+	}
+	w.filePosMu.Unlock()
+}
+
+// findPositionForLastNLines returns the byte offset to start reading the last N lines
+func findPositionForLastNLines(path string, n int) int64 {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+
+	// Collect positions of all newlines
+	var newlinePositions []int64
+	var pos int64
+	buf := make([]byte, FileReadBufferSize)
+	for {
+		bytesRead, err := file.Read(buf)
+		for i := 0; i < bytesRead; i++ {
+			if buf[i] == '\n' {
+				newlinePositions = append(newlinePositions, pos+int64(i)+1)
+			}
+		}
+		pos += int64(bytesRead)
+		if err != nil {
+			break
+		}
+	}
+
+	// If fewer than N lines, start from beginning
+	if len(newlinePositions) <= n {
+		return 0
+	}
+
+	// Return position after the newline that's N lines from the end
+	return newlinePositions[len(newlinePositions)-n]
+}
+
+func (w *Watcher) readSessionFiles(session *Session) {
+	// Read main file
+	w.readFile(session.MainFile, session.ID, "", "")
+
+	// Get snapshot of subagents and types to avoid holding lock during file reads
+	session.mu.RLock()
+	subagents := make(map[string]string, len(session.Subagents))
+	for k, v := range session.Subagents {
+		subagents[k] = v
+	}
+	subagentTypes := make(map[string]string, len(session.SubagentTypes))
+	for k, v := range session.SubagentTypes {
+		subagentTypes[k] = v
+	}
+	session.mu.RUnlock()
+
+	// Read subagent files
+	for agentID, path := range subagents {
+		w.readFile(path, session.ID, agentID, subagentTypes[agentID])
+	}
+}
+
+func (w *Watcher) readFile(path string, sessionID string, agentID string, agentType string) {
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	// Seek to last known position
+	w.filePosMu.RLock()
+	pos, exists := w.filePositions[path]
+	w.filePosMu.RUnlock()
+	if exists {
+		file.Seek(pos, 0)
+	}
+
+	scanner := bufio.NewScanner(file)
+	// Increase buffer size for large JSON lines
+	buf := make([]byte, 0, ScannerInitBufferSize)
+	scanner.Buffer(buf, ScannerMaxBufferSize)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		items, err := parser.ParseLine(line)
+		if err != nil {
+			select {
+			case w.Errors <- err:
+			default:
+			}
+			continue
+		}
+
+		for _, item := range items {
+			// Set session ID
+			item.SessionID = sessionID
+
+			// Set agent ID and name from context
+			if agentID != "" {
+				if item.AgentID == "" {
+					item.AgentID = agentID
+				}
+				if agentType != "" {
+					if idx := strings.LastIndex(agentType, ":"); idx >= 0 && idx < len(agentType)-1 {
+						item.AgentName = agentType[idx+1:]
+					} else {
+						item.AgentName = agentType
+					}
+				} else if item.AgentName == "" || strings.HasPrefix(item.AgentName, "Agent-") {
+					item.AgentName = fmt.Sprintf("Agent-%s", agentID[:min(AgentIDDisplayLength, len(agentID))])
+				}
+			}
+
+			select {
+			case w.Items <- item:
+			case <-w.ctx.Done():
+				return
+			}
+		}
+	}
+
+	// Check for scanner errors
+	if err := scanner.Err(); err != nil {
+		select {
+		case w.Errors <- fmt.Errorf("scanner error reading %s: %w", path, err):
+		default:
+		}
+	}
+
+	// Update position
+	newPos, _ := file.Seek(0, 1)
+	w.filePosMu.Lock()
+	w.filePositions[path] = newPos
+	w.filePosMu.Unlock()
+}
+
+// cleanupFilePositions removes entries for files that no longer exist
+func (w *Watcher) cleanupFilePositions() {
+	w.filePosMu.Lock()
+	defer w.filePosMu.Unlock()
+	for path := range w.filePositions {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			delete(w.filePositions, path)
+		}
+	}
+}
+
+// ListSessions returns recent sessions
+func ListSessions(limit int) ([]SessionInfo, error) {
+	return listSessionsFiltered(limit, 0)
+}
+
+// ListActiveSessions returns sessions modified within the given duration
+func ListActiveSessions(within time.Duration) ([]SessionInfo, error) {
+	return listSessionsFiltered(0, within)
+}
+
+func listSessionsFiltered(limit int, activeWithin time.Duration) ([]SessionInfo, error) {
+	claudeDir, err := getClaudeProjectsDir()
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []SessionInfo
+	now := time.Now()
+
+	err = filepath.Walk(claudeDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !isMainSessionFile(path, info) {
+			return nil
+		}
+
+		// If filtering by active time, skip old sessions
+		if activeWithin > 0 && now.Sub(info.ModTime()) > activeWithin {
+			return nil
+		}
+
+		// Extract project path from parent directory name
+		basename := filepath.Base(path)
+		projectDir := filepath.Base(filepath.Dir(path))
+		projectPath := resolveProjectPath(projectDir)
+
+		sessions = append(sessions, SessionInfo{
+			ID:          strings.TrimSuffix(basename, ".jsonl"),
+			Path:        path,
+			ProjectPath: projectPath,
+			Modified:    info.ModTime(),
+			IsActive:    now.Sub(info.ModTime()) < RecentActivityThreshold,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Sort by modification time
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].Modified.After(sessions[j].Modified)
+	})
+
+	if limit > 0 && len(sessions) > limit {
+		sessions = sessions[:limit]
+	}
+
+	return sessions, nil
+}
+
+// SessionInfo contains basic info about a session
+type SessionInfo struct {
+	ID          string
+	Path        string
+	ProjectPath string
+	Modified    time.Time
+	IsActive    bool
+}

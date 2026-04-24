@@ -1,0 +1,30 @@
+# Binary
+claude-esp
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings
+.claude/
+
+# Beads issue tracking (local db)
+.beads/
+
+# Claude artifacts
+AGENTS.md
