@@ -1,0 +1,99 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+!.env.template
+!.env.quickstart
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Testing
+coverage/
+test-results/
+
+# TypeScript build artifacts
+dist/
+*.tsbuildinfo
+
+# TypeScript compiled test files
+test/**/*.d.ts
+test/**/*.d.ts.map
+test/**/*.js.map
+# Don't ignore the actual test files
+!test/**/*.test.js
+!test/**/*.spec.js
+
+# Temporary files
+tmp/
+temp/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# SSH Keys for testing
+ssh_keys_tmp/
+
+# AWS CLI installation files
+awscliv2.zip
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Pre-commit
+.pre-commit-cache/
+
+# Security files
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Credential files
+credentials
+config
+auth.json
+service-account.json
+
+# Claude authentication output
+.claude-hub/
+claude-config/
+claude-config*
+
+# Docker secrets
+secrets/
+
+
+# Temporary and backup files
+*.backup
+*.tmp
+*~
+.#*
+
+# Root level clutter prevention
+/test-*.js
+/PR_SUMMARY.md
+/*-proposal.md

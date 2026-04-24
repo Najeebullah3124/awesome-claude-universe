@@ -1,0 +1,44 @@
+services:
+  webhook:
+    build: .
+    ports:
+      - "${PORT:-3002}:${PORT:-3002}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/.aws:/root/.aws:ro
+      - ${HOME}/.claude-hub:/home/node/.claude
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT:-3002}
+      - TRUST_PROXY=${TRUST_PROXY:-true}
+      - AUTHORIZED_USERS=${AUTHORIZED_USERS:-Cheffromspace}
+      - BOT_USERNAME=${BOT_USERNAME:-@MCPClaude}
+      - BOT_EMAIL=${BOT_EMAIL:-claude@example.com}
+      - DEFAULT_GITHUB_OWNER=${DEFAULT_GITHUB_OWNER:-Cheffromspace}
+      - DEFAULT_GITHUB_USER=${DEFAULT_GITHUB_USER:-Cheffromspace}
+      - DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
+      - CLAUDE_USE_CONTAINERS=1
+      - CLAUDE_CONTAINER_IMAGE=claudecode:latest
+      - CLAUDE_AUTH_HOST_DIR=${CLAUDE_AUTH_HOST_DIR:-${HOME}/.claude-hub}
+      - DISABLE_LOG_REDACTION=true
+      # Claude Code timeout settings for unattended mode
+      - BASH_DEFAULT_TIMEOUT_MS=${BASH_DEFAULT_TIMEOUT_MS:-600000}  # 10 minutes default
+      - BASH_MAX_TIMEOUT_MS=${BASH_MAX_TIMEOUT_MS:-1200000}  # 20 minutes max
+      # Smart wait for all meaningful checks by default, or use specific workflow trigger
+      - PR_REVIEW_WAIT_FOR_ALL_CHECKS=${PR_REVIEW_WAIT_FOR_ALL_CHECKS:-true}
+      - PR_REVIEW_TRIGGER_WORKFLOW=${PR_REVIEW_TRIGGER_WORKFLOW:-}
+      - PR_REVIEW_DEBOUNCE_MS=${PR_REVIEW_DEBOUNCE_MS:-5000}
+      - PR_REVIEW_MAX_WAIT_MS=${PR_REVIEW_MAX_WAIT_MS:-1800000}
+      - PR_REVIEW_CONDITIONAL_TIMEOUT_MS=${PR_REVIEW_CONDITIONAL_TIMEOUT_MS:-300000}
+      # Secrets from environment variables
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - CLAUDE_WEBHOOK_SECRET=${CLAUDE_WEBHOOK_SECRET}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3002}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

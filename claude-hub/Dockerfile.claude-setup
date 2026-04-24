@@ -1,0 +1,108 @@
+FROM node:24
+
+# Install dependencies for interactive session
+RUN apt update && apt install -y \
+  git \
+  sudo \
+  zsh \
+  curl \
+  vim \
+  nano \
+  gh \
+  rsync
+
+# Set up npm global directory
+RUN mkdir -p /usr/local/share/npm-global && \
+  chown -R node:node /usr/local/share
+
+# Switch to node user for npm install
+USER node
+ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
+ENV PATH=$PATH:/usr/local/share/npm-global/bin
+
+# Install Claude Code
+RUN npm install -g @anthropic-ai/claude-code
+
+# Switch back to root for setup
+USER root
+
+# Create authentication workspace
+RUN mkdir -p /auth-setup && chown -R node:node /auth-setup
+
+# Set up interactive shell environment
+ENV SHELL /bin/zsh
+WORKDIR /auth-setup
+
+# Create setup script
+COPY <<'EOF' /setup-claude-auth.sh
+#!/bin/bash
+set -e
+
+echo "🔧 Claude Authentication Setup"
+echo "=============================="
+echo ""
+echo "This will help you connect Claude to your account."
+echo ""
+echo "Quick setup - just run this command:"
+echo ""
+echo "  claude --dangerously-skip-permissions && exit"
+echo ""
+echo "This will authenticate Claude and save your setup automatically."
+echo ""
+
+# Function to copy authentication state
+copy_auth_state() {
+  if [ -d "/home/node/.claude" ] && [ -d "/auth-output" ]; then
+    echo "💾 Saving your authentication..."
+    # Copy authentication files, excluding todos
+    rsync -a --exclude='todos/' /home/node/.claude/ /auth-output/ 2>/dev/null || \
+      cp -r /home/node/.claude/. /auth-output/ 2>/dev/null || true
+    echo "✅ Authentication saved successfully!"
+  fi
+}
+
+# Set up signal handling to capture state on exit
+trap copy_auth_state EXIT
+
+# Create .claude directory for node user
+sudo -u node mkdir -p /home/node/.claude
+
+echo "🔐 Starting interactive shell as 'node' user..."
+echo ""
+echo ""
+
+# Check if we should run automatically
+if [ "$1" = "--auto" ]; then
+  echo "Running authentication automatically..."
+  echo ""
+  sudo -u node bash -c '
+    export HOME=/home/node
+    export PATH=/usr/local/share/npm-global/bin:$PATH
+    cd /home/node
+    claude --dangerously-skip-permissions
+    exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+      echo ""
+      echo "❌ Authentication command failed with exit code $exit_code"
+      exit $exit_code
+    fi
+  '
+else
+  # Switch to node user and start interactive shell
+  sudo -u node bash -c '
+    export HOME=/home/node
+    export PATH=/usr/local/share/npm-global/bin:$PATH
+    cd /home/node
+    echo "Ready! Run this command to authenticate and exit:"
+    echo ""
+    echo "  claude --dangerously-skip-permissions && exit"
+    echo ""
+    exec bash -i
+  '
+fi
+EOF
+
+RUN chmod +x /setup-claude-auth.sh
+
+# Set entrypoint to setup script
+ENTRYPOINT ["/bin/bash", "/setup-claude-auth.sh"]
