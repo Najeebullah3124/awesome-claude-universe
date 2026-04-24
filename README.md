@@ -31,12 +31,13 @@
 ## Table of contents
 
 - [At a glance](#at-a-glance)
-- [Visual map](#visual-map)
+- [Navigation & workflow](#navigation--workflow)
 - [What is inside](#what-is-inside)
 - [Spotlight](#spotlight-10-hand-picked)
 - [Full directory index](#full-directory-index-78-repositories)
 - [How to use this repo](#how-to-use-this-repo)
 - [Sync & scripts](#sync--scripts)
+- [FAQ](#faq)
 - [License & attribution](#license--attribution)
 
 ---
@@ -52,42 +53,34 @@
 
 ---
 
-## Visual map
+## Navigation & workflow
 
-### Ecosystem layers
+### Quick links (start here)
+
+| If you want to… | Open this folder |
+|-----------------|------------------|
+| Read the official CLI + plugins | [`claude-code/`](claude-code/) |
+| Copy official examples & notebooks | [`anthropic-cookbook/`](anthropic-cookbook/) |
+| Browse the big community index | [`awesome-claude-code-hesreallyhim/`](awesome-claude-code-hesreallyhim/) |
+| See reference MCP servers | [`servers/`](servers/) |
+| Pack a repo for LLM context | [`repomix/`](repomix/) |
+| Inspect local Claude Code usage | [`ccusage/`](ccusage/) |
+| Study hooks deeply | [`claude-code-hooks-mastery/`](claude-code-hooks-mastery/) |
+| Compare editor integrations | [`continue/`](continue/) · [`zed/`](zed/) · [`claude-code.nvim/`](claude-code.nvim/) |
+
+### Typical workflow
 
 ```mermaid
-flowchart TB
-  subgraph Official["Official Anthropic"]
-    CC[claude-code]
-    CCA[claude-code-action]
-    CB[claude-code-base-action]
-    CK[anthropic-cookbook]
-    QS[anthropic-quickstarts]
-  end
+sequenceDiagram
+  participant You
+  participant List as claude.txt / README
+  participant Here as This repo
+  participant Up as Upstream GitHub
 
-  subgraph AgentsSkills["Agents, skills, orchestration"]
-    SP[superpowers]
-    ECC[everything-claude-code]
-    GS[gstack]
-    SYS[agentsys / ralph-* / ccpm]
-  end
-
-  subgraph MCP["MCP & integrations"]
-    SRV[servers]
-    AWS[aws-mcp-server]
-  end
-
-  subgraph EditorsTools["Editors & dev tools"]
-    ZED[zed]
-    CON[continue]
-    NV[claude-code.nvim]
-    RM[repomix / ccusage]
-  end
-
-  Official --> AgentsSkills
-  AgentsSkills --> MCP
-  MCP --> EditorsTools
+  You->>List: Pick a topic
+  List->>Here: Find folder name / MANIFEST.tsv
+  You->>Here: Read & search files locally
+  You->>Up: Issues, releases, PRs (canonical)
 ```
 
 ### How folders map to GitHub
@@ -261,6 +254,25 @@ Regenerate the manifest after editing `claude.txt`:
 ```bash
 python3 scripts/sync_from_claude_txt.py claude.txt > MANIFEST.tsv
 ```
+
+---
+
+## FAQ
+
+**Why are some `MANIFEST.tsv` rows missing as folders?**  
+A few upstream URLs moved, were renamed, or returned 404 when cloned. The manifest still lists the *intended* target so you can fix the URL and run [`scripts/clone_manifest.sh`](scripts/clone_manifest.sh) again.
+
+**Why does `claude.txt` mention more than 78 repos?**  
+Many lines link to **GitHub search**, not a single repository. Only real `github.com/owner/repo` URLs are in the manifest.
+
+**Is this a fork of every project?**  
+No. It is a **snapshot index**: one checkout, no nested `.git` per project. Use each project’s own repo for history and collaboration.
+
+**Will this repo stay tiny?**  
+No. It is intentionally large. Clone with intent, or clone then delete folders you do not need.
+
+**Where did `gstack` come from if `claude.txt` says `gtanczyk/gstack`?**  
+That path was not available as a normal public clone; the bundle uses **[`garrytan/gstack`](https://github.com/garrytan/gstack)** as the canonical Garry Tan setup.
 
 ---
 
