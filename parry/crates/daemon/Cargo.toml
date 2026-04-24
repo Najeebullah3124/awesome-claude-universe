@@ -1,0 +1,40 @@
+[package]
+name = "parry-guard-daemon"
+description = "Async daemon for persistent ML model loading"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+parry-guard-core.workspace = true
+parry-guard-ml.workspace = true
+eyre.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+interprocess.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+redb.workspace = true
+blake3.workspace = true
+
+[features]
+default = ["onnx-fetch"]
+onnx = ["parry-guard-ml/onnx"]
+onnx-fetch = ["parry-guard-ml/onnx-fetch"]
+onnx-coreml = ["parry-guard-ml/onnx-coreml"]
+candle = ["parry-guard-ml/candle", "parry-guard-core/candle"]
+
+[package.metadata.docs.rs]
+features = ["candle"]
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[lints]
+workspace = true

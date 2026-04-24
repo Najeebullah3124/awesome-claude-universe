@@ -1,0 +1,37 @@
+[package]
+name = "parry-guard-hook"
+description = "Claude Code hook integration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+parry-guard-core.workspace = true
+parry-guard-destructive.workspace = true
+parry-guard-exfil.workspace = true
+parry-guard-daemon.workspace = true
+blake3.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[features]
+default = ["onnx-fetch"]
+onnx = ["parry-guard-daemon/onnx"]
+onnx-fetch = ["parry-guard-daemon/onnx-fetch"]
+onnx-coreml = ["parry-guard-daemon/onnx-coreml"]
+candle = ["parry-guard-daemon/candle", "parry-guard-core/candle"]
+
+[package.metadata.docs.rs]
+features = ["candle"]
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[lints]
+workspace = true

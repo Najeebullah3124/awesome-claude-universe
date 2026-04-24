@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".gitignore"
+      - ".claude/**"
+      - ".serena/**"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - ".gitignore"
+      - ".claude/**"
+      - ".serena/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Nix flake checks
+        run: nix flake check
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Generate coverage
+        run: nix develop --command cargo llvm-cov nextest --workspace --exclude parry-guard-e2e --lcov --output-path lcov.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: false
+
+  # Cant do fetch in nix
+  check-onnx-fetch:
+    name: Check (onnx-fetch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: onnx-fetch
+
+      - name: Clippy
+        run: cargo clippy --workspace --no-default-features --features onnx-fetch -- -D warnings
+
+      - name: Test
+        run: cargo nextest run --workspace --exclude parry-guard-e2e --no-default-features --features onnx-fetch
+
+  build:
+    name: Nix build (${{ matrix.backend }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        backend: [default, candle]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Nix build
+        run: nix build .#${{ matrix.backend }}
+
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+
+  e2e:
+    name: E2E (${{ matrix.feature }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        feature: [candle, onnx, onnx-fetch]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: ML e2e tests
+        run: nix develop --command cargo nextest run -p parry-guard-daemon --no-default-features --features ${{ matrix.feature }} --test e2e --run-ignored all --success-output immediate
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+  docker:
+    name: Docker (${{ matrix.backend }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [onnx-fetch, candle]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          build-args: BACKEND=${{ matrix.backend }}
+          cache-from: type=gha,scope=${{ matrix.backend }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.backend }}
