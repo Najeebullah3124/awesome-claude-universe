@@ -1,0 +1,4092 @@
+"""Test cases for dippy."""
+
+from __future__ import annotations
+
+import pytest
+
+from conftest import is_approved, needs_confirmation
+
+# (command, expected_approved_by_hook)
+TESTS = [
+    #
+    # ==========================================================================
+    # AWS CLI
+    # ==========================================================================
+    #
+    ("aws help", True),
+    ("aws s3 help", True),
+    ("aws ec2 help", True),
+    ("aws s3 ls", True),
+    ("aws ec2 describe-instances", True),
+    ("aws --profile prod ec2 describe-instances", True),
+    ("aws --region us-east-1 ec2 describe-instances", True),
+    ("aws --output json s3 ls", True),
+    ("aws --profile prod --region us-west-2 lambda list-functions", True),
+    ("aws --endpoint-url http://localhost:4566 s3 ls", True),
+    ("aws --no-cli-pager ec2 describe-instances", True),
+    ("aws logs filter-log-events --log-group-name test", True),
+    ("aws cloudtrail lookup-events", True),
+    ("aws dynamodb batch-get-item --request-items file://items.json", True),
+    ("aws dynamodb query --table-name mytable", True),
+    ("aws dynamodb scan --table-name mytable", True),
+    ("aws dynamodb transact-get-items --transact-items file://items.json", True),
+    ("aws cloudformation validate-template --template-body file://t.yaml", True),
+    # AWS - comprehensive coverage from tldr
+    # aws sts - Security Token Service
+    ("aws sts get-caller-identity", True),
+    ("aws sts get-session-token", True),
+    ("aws sts get-access-key-info --access-key-id AKIA...", True),
+    (
+        "aws sts assume-role --role-arn arn:aws:iam::123:role/myrole --role-session-name sess",
+        False,
+    ),
+    (
+        "aws sts assume-role-with-saml --role-arn arn --principal-arn arn --saml-assertion ...",
+        False,
+    ),
+    # aws ec2 - Elastic Compute Cloud
+    ("aws ec2 describe-instances", True),
+    ("aws ec2 describe-instances --instance-ids i-123", True),
+    ("aws ec2 describe-instances --filters Name=tag:Name,Values=myserver", True),
+    ("aws ec2 describe-volumes", True),
+    ("aws ec2 describe-volumes --volume-ids vol-123", True),
+    ("aws ec2 describe-images", True),
+    ("aws ec2 describe-images --owners self", True),
+    ("aws ec2 describe-security-groups", True),
+    ("aws ec2 describe-subnets", True),
+    ("aws ec2 describe-vpcs", True),
+    ("aws ec2 describe-key-pairs", True),
+    ("aws ec2 describe-snapshots --owner-ids self", True),
+    ("aws ec2 describe-availability-zones", True),
+    ("aws ec2 describe-regions", True),
+    ("aws ec2 describe-addresses", True),
+    ("aws ec2 describe-network-interfaces", True),
+    ("aws ec2 describe-route-tables", True),
+    ("aws ec2 describe-internet-gateways", True),
+    ("aws ec2 describe-nat-gateways", True),
+    ("aws ec2 describe-launch-templates", True),
+    ("aws ec2 get-console-output --instance-id i-123", True),
+    ("aws ec2 get-password-data --instance-id i-123", True),
+    ("aws ec2 run-instances --image-id ami-123 --instance-type t2.micro", False),
+    ("aws ec2 start-instances --instance-ids i-123", False),
+    ("aws ec2 stop-instances --instance-ids i-123", False),
+    ("aws ec2 reboot-instances --instance-ids i-123", False),
+    ("aws ec2 terminate-instances --instance-ids i-123", False),
+    ("aws ec2 create-snapshot --volume-id vol-123", False),
+    ("aws ec2 delete-snapshot --snapshot-id snap-123", False),
+    ("aws ec2 delete-volume --volume-id vol-123", False),
+    ("aws ec2 create-image --instance-id i-123 --name myami", False),
+    ("aws ec2 create-key-pair --key-name mykey", False),
+    ("aws ec2 delete-key-pair --key-name mykey", False),
+    ("aws ec2 create-security-group --group-name mysg --description desc", False),
+    ("aws ec2 delete-security-group --group-id sg-123", False),
+    (
+        "aws ec2 authorize-security-group-ingress --group-id sg-123 --protocol tcp --port 22 --cidr 0.0.0.0/0",
+        False,
+    ),
+    (
+        "aws ec2 modify-instance-attribute --instance-id i-123 --instance-type t3.micro",
+        False,
+    ),
+    # aws s3 - Simple Storage Service (high-level commands)
+    ("aws s3 ls", True),
+    ("aws s3 ls s3://mybucket", True),
+    ("aws s3 ls s3://mybucket/prefix/", True),
+    ("aws s3 ls s3://mybucket --recursive", True),
+    ("aws s3 cp s3://src/file s3://dst/file", False),
+    ("aws s3 cp localfile s3://bucket/file", False),
+    ("aws s3 cp s3://bucket/file localfile", False),
+    ("aws s3 mv s3://src/file s3://dst/file", False),
+    ("aws s3 rm s3://bucket/file", False),
+    ("aws s3 rm s3://bucket/ --recursive", False),
+    ("aws s3 sync ./local s3://bucket", False),
+    ("aws s3 sync s3://bucket ./local", False),
+    ("aws s3 mb s3://newbucket", False),
+    ("aws s3 rb s3://bucket", False),
+    ("aws s3 rb s3://bucket --force", False),
+    ("aws s3 presign s3://bucket/file", False),  # generates URL but could leak
+    ("aws s3 website s3://bucket --index-document index.html", False),
+    # aws s3api - S3 API commands
+    ("aws s3api list-buckets", True),
+    ("aws s3api list-objects --bucket mybucket", True),
+    ("aws s3api list-objects-v2 --bucket mybucket", True),
+    ("aws s3api list-object-versions --bucket mybucket", True),
+    ("aws s3api list-multipart-uploads --bucket mybucket", True),
+    ("aws s3api get-bucket-location --bucket mybucket", True),
+    ("aws s3api get-bucket-versioning --bucket mybucket", True),
+    ("aws s3api get-bucket-acl --bucket mybucket", True),
+    ("aws s3api get-bucket-policy --bucket mybucket", True),
+    ("aws s3api get-bucket-logging --bucket mybucket", True),
+    ("aws s3api get-bucket-encryption --bucket mybucket", True),
+    ("aws s3api get-bucket-lifecycle-configuration --bucket mybucket", True),
+    ("aws s3api get-bucket-tagging --bucket mybucket", True),
+    ("aws s3api get-object --bucket mybucket --key mykey outfile", True),
+    ("aws s3api get-object-acl --bucket mybucket --key mykey", True),
+    ("aws s3api get-object-tagging --bucket mybucket --key mykey", True),
+    ("aws s3api head-bucket --bucket mybucket", True),
+    ("aws s3api head-object --bucket mybucket --key mykey", True),
+    ("aws s3api put-object --bucket mybucket --key mykey --body file", False),
+    ("aws s3api delete-object --bucket mybucket --key mykey", False),
+    ("aws s3api delete-objects --bucket mybucket --delete file://delete.json", False),
+    ("aws s3api create-bucket --bucket newbucket", False),
+    ("aws s3api delete-bucket --bucket mybucket", False),
+    (
+        "aws s3api put-bucket-policy --bucket mybucket --policy file://policy.json",
+        False,
+    ),
+    ("aws s3api put-bucket-acl --bucket mybucket --acl public-read", False),
+    # aws iam - Identity and Access Management
+    ("aws iam list-users", True),
+    ("aws iam list-groups", True),
+    ("aws iam list-roles", True),
+    ("aws iam list-policies", True),
+    ("aws iam list-policies --scope Local", True),
+    ("aws iam list-attached-user-policies --user-name myuser", True),
+    ("aws iam list-attached-role-policies --role-name myrole", True),
+    ("aws iam list-attached-group-policies --group-name mygroup", True),
+    ("aws iam list-user-policies --user-name myuser", True),
+    ("aws iam list-role-policies --role-name myrole", True),
+    ("aws iam list-group-policies --group-name mygroup", True),
+    ("aws iam list-access-keys", True),
+    ("aws iam list-access-keys --user-name myuser", True),
+    ("aws iam list-mfa-devices", True),
+    ("aws iam list-mfa-devices --user-name myuser", True),
+    ("aws iam list-account-aliases", True),
+    ("aws iam list-instance-profiles", True),
+    ("aws iam list-server-certificates", True),
+    ("aws iam list-signing-certificates", True),
+    ("aws iam list-ssh-public-keys", True),
+    ("aws iam get-user", True),
+    ("aws iam get-user --user-name myuser", True),
+    ("aws iam get-group --group-name mygroup", True),
+    ("aws iam get-role --role-name myrole", True),
+    ("aws iam get-policy --policy-arn arn:aws:iam::123:policy/mypolicy", True),
+    ("aws iam get-policy-version --policy-arn arn --version-id v1", True),
+    ("aws iam get-account-summary", True),
+    ("aws iam get-account-password-policy", True),
+    ("aws iam get-account-authorization-details", True),
+    ("aws iam get-credential-report", True),
+    ("aws iam get-instance-profile --instance-profile-name myprofile", True),
+    ("aws iam get-login-profile --user-name myuser", True),
+    ("aws iam get-access-key-last-used --access-key-id AKIA...", True),
+    ("aws iam generate-credential-report", True),
+    (
+        "aws iam simulate-principal-policy --policy-source-arn arn --action-names s3:GetObject",
+        True,
+    ),
+    ("aws iam create-user --user-name newuser", False),
+    ("aws iam delete-user --user-name myuser", False),
+    ("aws iam create-group --group-name newgroup", False),
+    ("aws iam delete-group --group-name mygroup", False),
+    (
+        "aws iam create-role --role-name newrole --assume-role-policy-document file://trust.json",
+        False,
+    ),
+    ("aws iam delete-role --role-name myrole", False),
+    (
+        "aws iam create-policy --policy-name newpolicy --policy-document file://policy.json",
+        False,
+    ),
+    ("aws iam delete-policy --policy-arn arn", False),
+    ("aws iam attach-user-policy --user-name myuser --policy-arn arn", False),
+    ("aws iam detach-user-policy --user-name myuser --policy-arn arn", False),
+    ("aws iam attach-role-policy --role-name myrole --policy-arn arn", False),
+    ("aws iam detach-role-policy --role-name myrole --policy-arn arn", False),
+    ("aws iam add-user-to-group --user-name myuser --group-name mygroup", False),
+    ("aws iam remove-user-from-group --user-name myuser --group-name mygroup", False),
+    ("aws iam create-access-key --user-name myuser", False),
+    ("aws iam delete-access-key --access-key-id AKIA... --user-name myuser", False),
+    ("aws iam update-access-key --access-key-id AKIA... --status Inactive", False),
+    ("aws iam create-login-profile --user-name myuser --password pass", False),
+    ("aws iam update-login-profile --user-name myuser --password newpass", False),
+    ("aws iam delete-login-profile --user-name myuser", False),
+    ("aws iam change-password --old-password old --new-password new", False),
+    (
+        "aws iam put-user-policy --user-name myuser --policy-name pol --policy-document file://p.json",
+        False,
+    ),
+    (
+        "aws iam put-role-policy --role-name myrole --policy-name pol --policy-document file://p.json",
+        False,
+    ),
+    # aws lambda - Lambda Functions
+    ("aws lambda list-functions", True),
+    ("aws lambda list-functions --region us-east-1", True),
+    ("aws lambda list-aliases --function-name myfunc", True),
+    ("aws lambda list-versions-by-function --function-name myfunc", True),
+    ("aws lambda list-event-source-mappings", True),
+    ("aws lambda list-event-source-mappings --function-name myfunc", True),
+    ("aws lambda list-layers", True),
+    ("aws lambda list-layer-versions --layer-name mylayer", True),
+    ("aws lambda list-tags --resource arn:aws:lambda:...", True),
+    ("aws lambda get-function --function-name myfunc", True),
+    ("aws lambda get-function-configuration --function-name myfunc", True),
+    ("aws lambda get-function-concurrency --function-name myfunc", True),
+    ("aws lambda get-function-url-config --function-name myfunc", True),
+    ("aws lambda get-alias --function-name myfunc --name myalias", True),
+    ("aws lambda get-policy --function-name myfunc", True),
+    ("aws lambda get-account-settings", True),
+    ("aws lambda get-layer-version --layer-name mylayer --version-number 1", True),
+    ("aws lambda invoke --function-name myfunc response.json", False),
+    ("aws lambda invoke --function-name myfunc --payload '{}' response.json", False),
+    (
+        "aws lambda create-function --function-name newfunc --runtime python3.9 --role arn --handler handler.main --zip-file fileb://code.zip",
+        False,
+    ),
+    ("aws lambda delete-function --function-name myfunc", False),
+    (
+        "aws lambda update-function-code --function-name myfunc --zip-file fileb://code.zip",
+        False,
+    ),
+    (
+        "aws lambda update-function-configuration --function-name myfunc --timeout 30",
+        False,
+    ),
+    ("aws lambda publish-version --function-name myfunc", False),
+    (
+        "aws lambda create-alias --function-name myfunc --name myalias --function-version 1",
+        False,
+    ),
+    ("aws lambda delete-alias --function-name myfunc --name myalias", False),
+    (
+        "aws lambda add-permission --function-name myfunc --statement-id stmt --action lambda:InvokeFunction --principal s3.amazonaws.com",
+        False,
+    ),
+    ("aws lambda remove-permission --function-name myfunc --statement-id stmt", False),
+    (
+        "aws lambda put-function-concurrency --function-name myfunc --reserved-concurrent-executions 10",
+        False,
+    ),
+    # aws dynamodb - DynamoDB
+    ("aws dynamodb list-tables", True),
+    ("aws dynamodb list-tables --region us-east-1", True),
+    ("aws dynamodb list-global-tables", True),
+    ("aws dynamodb list-backups", True),
+    ("aws dynamodb list-exports", True),
+    ("aws dynamodb list-imports", True),
+    ("aws dynamodb list-contributor-insights", True),
+    ("aws dynamodb describe-table --table-name mytable", True),
+    ("aws dynamodb describe-continuous-backups --table-name mytable", True),
+    ("aws dynamodb describe-time-to-live --table-name mytable", True),
+    ("aws dynamodb describe-limits", True),
+    ("aws dynamodb describe-endpoints", True),
+    ("aws dynamodb describe-backup --backup-arn arn", True),
+    ("aws dynamodb describe-global-table --global-table-name mytable", True),
+    ("aws dynamodb describe-global-table-settings --global-table-name mytable", True),
+    ("aws dynamodb get-item --table-name mytable --key file://key.json", True),
+    ("aws dynamodb batch-get-item --request-items file://items.json", True),
+    (
+        "aws dynamodb query --table-name mytable --key-condition-expression 'pk = :pk' --expression-attribute-values file://vals.json",
+        True,
+    ),
+    ("aws dynamodb scan --table-name mytable", True),
+    ("aws dynamodb scan --table-name mytable --filter-expression 'attr > :val'", True),
+    ("aws dynamodb transact-get-items --transact-items file://items.json", True),
+    (
+        "aws dynamodb create-table --table-name newtable --attribute-definitions ... --key-schema ... --billing-mode PAY_PER_REQUEST",
+        False,
+    ),
+    ("aws dynamodb delete-table --table-name mytable", False),
+    (
+        "aws dynamodb update-table --table-name mytable --billing-mode PAY_PER_REQUEST",
+        False,
+    ),
+    ("aws dynamodb put-item --table-name mytable --item file://item.json", False),
+    (
+        "aws dynamodb update-item --table-name mytable --key file://key.json --update-expression 'SET attr = :val'",
+        False,
+    ),
+    ("aws dynamodb delete-item --table-name mytable --key file://key.json", False),
+    ("aws dynamodb batch-write-item --request-items file://items.json", False),
+    ("aws dynamodb transact-write-items --transact-items file://items.json", False),
+    ("aws dynamodb create-backup --table-name mytable --backup-name mybackup", False),
+    ("aws dynamodb delete-backup --backup-arn arn", False),
+    (
+        "aws dynamodb restore-table-from-backup --target-table-name newtable --backup-arn arn",
+        False,
+    ),
+    # aws rds - Relational Database Service
+    ("aws rds describe-db-instances", True),
+    ("aws rds describe-db-instances --db-instance-identifier mydb", True),
+    ("aws rds describe-db-clusters", True),
+    ("aws rds describe-db-clusters --db-cluster-identifier mycluster", True),
+    ("aws rds describe-db-snapshots", True),
+    ("aws rds describe-db-snapshots --db-snapshot-identifier mysnap", True),
+    ("aws rds describe-db-cluster-snapshots", True),
+    ("aws rds describe-db-parameter-groups", True),
+    ("aws rds describe-db-parameters --db-parameter-group-name mygroup", True),
+    ("aws rds describe-db-subnet-groups", True),
+    ("aws rds describe-db-security-groups", True),
+    ("aws rds describe-db-engine-versions", True),
+    ("aws rds describe-db-log-files --db-instance-identifier mydb", True),
+    ("aws rds describe-events", True),
+    ("aws rds describe-events --source-type db-instance", True),
+    ("aws rds describe-reserved-db-instances", True),
+    ("aws rds describe-orderable-db-instance-options --engine postgres", True),
+    ("aws rds describe-account-attributes", True),
+    ("aws rds describe-certificates", True),
+    ("aws rds describe-pending-maintenance-actions", True),
+    ("aws rds list-tags-for-resource --resource-name arn:aws:rds:...", True),
+    (
+        "aws rds download-db-log-file-portion --db-instance-identifier mydb --log-file-name error.log",
+        True,
+    ),
+    (
+        "aws rds create-db-instance --db-instance-identifier newdb --db-instance-class db.t3.micro --engine postgres",
+        False,
+    ),
+    ("aws rds delete-db-instance --db-instance-identifier mydb", False),
+    (
+        "aws rds delete-db-instance --db-instance-identifier mydb --skip-final-snapshot",
+        False,
+    ),
+    ("aws rds start-db-instance --db-instance-identifier mydb", False),
+    ("aws rds stop-db-instance --db-instance-identifier mydb", False),
+    ("aws rds reboot-db-instance --db-instance-identifier mydb", False),
+    (
+        "aws rds modify-db-instance --db-instance-identifier mydb --db-instance-class db.t3.medium",
+        False,
+    ),
+    (
+        "aws rds modify-db-instance --db-instance-identifier mydb --apply-immediately",
+        False,
+    ),
+    (
+        "aws rds create-db-snapshot --db-instance-identifier mydb --db-snapshot-identifier mysnap",
+        False,
+    ),
+    ("aws rds delete-db-snapshot --db-snapshot-identifier mysnap", False),
+    (
+        "aws rds restore-db-instance-from-db-snapshot --db-instance-identifier newdb --db-snapshot-identifier mysnap",
+        False,
+    ),
+    (
+        "aws rds create-db-cluster --db-cluster-identifier mycluster --engine aurora-postgresql",
+        False,
+    ),
+    ("aws rds delete-db-cluster --db-cluster-identifier mycluster", False),
+    # aws eks - Elastic Kubernetes Service
+    ("aws eks list-clusters", True),
+    ("aws eks list-nodegroups --cluster-name mycluster", True),
+    ("aws eks list-fargate-profiles --cluster-name mycluster", True),
+    ("aws eks list-addons --cluster-name mycluster", True),
+    ("aws eks list-identity-provider-configs --cluster-name mycluster", True),
+    ("aws eks list-updates --name mycluster", True),
+    ("aws eks describe-cluster --name mycluster", True),
+    (
+        "aws eks describe-nodegroup --cluster-name mycluster --nodegroup-name mynodegroup",
+        True,
+    ),
+    (
+        "aws eks describe-fargate-profile --cluster-name mycluster --fargate-profile-name myprofile",
+        True,
+    ),
+    ("aws eks describe-addon --cluster-name mycluster --addon-name vpc-cni", True),
+    ("aws eks describe-addon-versions --addon-name vpc-cni", True),
+    ("aws eks describe-update --name mycluster --update-id id", True),
+    (
+        "aws eks describe-identity-provider-config --cluster-name mycluster --identity-provider-config type=oidc,name=myconfig",
+        True,
+    ),
+    (
+        "aws eks create-cluster --name newcluster --role-arn arn --resources-vpc-config subnetIds=...",
+        False,
+    ),
+    ("aws eks delete-cluster --name mycluster", False),
+    (
+        "aws eks update-cluster-config --name mycluster --resources-vpc-config ...",
+        False,
+    ),
+    (
+        "aws eks update-cluster-version --name mycluster --kubernetes-version 1.27",
+        False,
+    ),
+    ("aws eks update-kubeconfig --name mycluster", False),
+    (
+        "aws eks create-nodegroup --cluster-name mycluster --nodegroup-name newnodegroup --subnets ... --node-role arn",
+        False,
+    ),
+    (
+        "aws eks delete-nodegroup --cluster-name mycluster --nodegroup-name mynodegroup",
+        False,
+    ),
+    ("aws eks create-addon --cluster-name mycluster --addon-name vpc-cni", False),
+    ("aws eks delete-addon --cluster-name mycluster --addon-name vpc-cni", False),
+    # aws ecr - Elastic Container Registry
+    ("aws ecr describe-repositories", True),
+    ("aws ecr describe-repositories --repository-names myrepo", True),
+    ("aws ecr describe-images --repository-name myrepo", True),
+    (
+        "aws ecr describe-image-scan-findings --repository-name myrepo --image-id imageTag=latest",
+        True,
+    ),
+    ("aws ecr list-images --repository-name myrepo", True),
+    ("aws ecr list-tags-for-resource --resource-arn arn", True),
+    ("aws ecr get-repository-policy --repository-name myrepo", True),
+    ("aws ecr get-lifecycle-policy --repository-name myrepo", True),
+    ("aws ecr get-lifecycle-policy-preview --repository-name myrepo", True),
+    ("aws ecr get-login-password", True),
+    ("aws ecr get-login-password --region us-east-1", True),
+    ("aws ecr get-authorization-token", True),
+    (
+        "aws ecr batch-get-image --repository-name myrepo --image-ids imageTag=latest",
+        True,
+    ),
+    ("aws ecr create-repository --repository-name newrepo", False),
+    ("aws ecr delete-repository --repository-name myrepo", False),
+    ("aws ecr delete-repository --repository-name myrepo --force", False),
+    (
+        "aws ecr put-image --repository-name myrepo --image-manifest file://manifest.json",
+        False,
+    ),
+    (
+        "aws ecr batch-delete-image --repository-name myrepo --image-ids imageTag=latest",
+        False,
+    ),
+    (
+        "aws ecr put-lifecycle-policy --repository-name myrepo --lifecycle-policy-text file://policy.json",
+        False,
+    ),
+    (
+        "aws ecr set-repository-policy --repository-name myrepo --policy-text file://policy.json",
+        False,
+    ),
+    (
+        "aws ecr start-image-scan --repository-name myrepo --image-id imageTag=latest",
+        False,
+    ),
+    # aws cloudformation - CloudFormation
+    ("aws cloudformation list-stacks", True),
+    ("aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE", True),
+    ("aws cloudformation list-stack-resources --stack-name mystack", True),
+    ("aws cloudformation list-stack-sets", True),
+    ("aws cloudformation list-exports", True),
+    ("aws cloudformation list-imports --export-name myexport", True),
+    ("aws cloudformation list-types", True),
+    ("aws cloudformation list-change-sets --stack-name mystack", True),
+    ("aws cloudformation describe-stacks", True),
+    ("aws cloudformation describe-stacks --stack-name mystack", True),
+    ("aws cloudformation describe-stack-events --stack-name mystack", True),
+    (
+        "aws cloudformation describe-stack-resource --stack-name mystack --logical-resource-id myresource",
+        True,
+    ),
+    ("aws cloudformation describe-stack-resources --stack-name mystack", True),
+    ("aws cloudformation describe-stack-resource-drifts --stack-name mystack", True),
+    ("aws cloudformation describe-stack-set --stack-set-name myset", True),
+    (
+        "aws cloudformation describe-change-set --change-set-name mychangeset --stack-name mystack",
+        True,
+    ),
+    ("aws cloudformation describe-type --type-name AWS::S3::Bucket", True),
+    ("aws cloudformation get-stack-policy --stack-name mystack", True),
+    ("aws cloudformation get-template --stack-name mystack", True),
+    ("aws cloudformation get-template-summary --stack-name mystack", True),
+    ("aws cloudformation detect-stack-drift --stack-name mystack", True),
+    (
+        "aws cloudformation detect-stack-resource-drift --stack-name mystack --logical-resource-id res",
+        True,
+    ),
+    ("aws cloudformation validate-template --template-body file://template.yaml", True),
+    (
+        "aws cloudformation estimate-template-cost --template-body file://template.yaml",
+        True,
+    ),
+    (
+        "aws cloudformation create-stack --stack-name newstack --template-body file://template.yaml",
+        False,
+    ),
+    ("aws cloudformation delete-stack --stack-name mystack", False),
+    (
+        "aws cloudformation update-stack --stack-name mystack --template-body file://template.yaml",
+        False,
+    ),
+    (
+        "aws cloudformation execute-change-set --change-set-name mychangeset --stack-name mystack",
+        False,
+    ),
+    ("aws cloudformation cancel-update-stack --stack-name mystack", False),
+    ("aws cloudformation continue-update-rollback --stack-name mystack", False),
+    (
+        "aws cloudformation create-change-set --stack-name mystack --change-set-name mychangeset --template-body file://t.yaml",
+        False,
+    ),
+    (
+        "aws cloudformation delete-change-set --change-set-name mychangeset --stack-name mystack",
+        False,
+    ),
+    (
+        "aws cloudformation signal-resource --stack-name mystack --logical-resource-id res --unique-id id --status SUCCESS",
+        False,
+    ),
+    # aws logs - CloudWatch Logs
+    ("aws logs describe-log-groups", True),
+    ("aws logs describe-log-groups --log-group-name-prefix /aws/lambda", True),
+    ("aws logs describe-log-streams --log-group-name mygroup", True),
+    (
+        "aws logs describe-log-streams --log-group-name mygroup --order-by LastEventTime --descending",
+        True,
+    ),
+    ("aws logs describe-metric-filters --log-group-name mygroup", True),
+    ("aws logs describe-subscription-filters --log-group-name mygroup", True),
+    ("aws logs describe-export-tasks", True),
+    ("aws logs describe-queries", True),
+    ("aws logs describe-query-definitions", True),
+    ("aws logs describe-destinations", True),
+    ("aws logs describe-resource-policies", True),
+    ("aws logs filter-log-events --log-group-name mygroup", True),
+    (
+        "aws logs filter-log-events --log-group-name mygroup --filter-pattern ERROR",
+        True,
+    ),
+    (
+        "aws logs filter-log-events --log-group-name mygroup --start-time 1234567890000",
+        True,
+    ),
+    (
+        "aws logs get-log-events --log-group-name mygroup --log-stream-name mystream",
+        True,
+    ),
+    ("aws logs get-log-record --log-record-pointer ptr", True),
+    ("aws logs get-query-results --query-id id", True),
+    (
+        "aws logs start-query --log-group-name mygroup --start-time 0 --end-time 1 --query-string 'fields @message'",
+        True,
+    ),
+    ("aws logs stop-query --query-id id", True),
+    ("aws logs tail --log-group-name mygroup", True),
+    ("aws logs tail --log-group-name mygroup --follow", True),
+    ("aws logs create-log-group --log-group-name newgroup", False),
+    ("aws logs delete-log-group --log-group-name mygroup", False),
+    (
+        "aws logs create-log-stream --log-group-name mygroup --log-stream-name newstream",
+        False,
+    ),
+    (
+        "aws logs delete-log-stream --log-group-name mygroup --log-stream-name mystream",
+        False,
+    ),
+    (
+        "aws logs put-log-events --log-group-name mygroup --log-stream-name mystream --log-events ...",
+        False,
+    ),
+    (
+        "aws logs put-retention-policy --log-group-name mygroup --retention-in-days 30",
+        False,
+    ),
+    ("aws logs delete-retention-policy --log-group-name mygroup", False),
+    (
+        "aws logs put-metric-filter --log-group-name mygroup --filter-name myfilter --filter-pattern ERROR --metric-transformations ...",
+        False,
+    ),
+    (
+        "aws logs delete-metric-filter --log-group-name mygroup --filter-name myfilter",
+        False,
+    ),
+    # aws cloudwatch - CloudWatch Metrics/Alarms
+    ("aws cloudwatch list-metrics", True),
+    ("aws cloudwatch list-metrics --namespace AWS/EC2", True),
+    ("aws cloudwatch list-dashboards", True),
+    ("aws cloudwatch list-tags-for-resource --resource-arn arn", True),
+    ("aws cloudwatch describe-alarms", True),
+    ("aws cloudwatch describe-alarms --alarm-names myalarm", True),
+    (
+        "aws cloudwatch describe-alarms-for-metric --metric-name CPUUtilization --namespace AWS/EC2",
+        True,
+    ),
+    ("aws cloudwatch describe-alarm-history --alarm-name myalarm", True),
+    ("aws cloudwatch describe-anomaly-detectors", True),
+    ("aws cloudwatch describe-insight-rules", True),
+    ("aws cloudwatch get-dashboard --dashboard-name mydash", True),
+    (
+        "aws cloudwatch get-metric-data --metric-data-queries file://queries.json --start-time 2023-01-01 --end-time 2023-01-02",
+        True,
+    ),
+    (
+        "aws cloudwatch get-metric-statistics --namespace AWS/EC2 --metric-name CPUUtilization --start-time 2023-01-01 --end-time 2023-01-02 --period 3600 --statistics Average",
+        True,
+    ),
+    ("aws cloudwatch get-metric-widget-image --metric-widget file://widget.json", True),
+    (
+        "aws cloudwatch get-insight-rule-report --rule-name myrule --start-time 2023-01-01 --end-time 2023-01-02 --period 3600",
+        True,
+    ),
+    (
+        "aws cloudwatch put-metric-alarm --alarm-name newalarm --metric-name CPUUtilization --namespace AWS/EC2 --threshold 80 --comparison-operator GreaterThanThreshold --evaluation-periods 2 --period 300 --statistic Average",
+        False,
+    ),
+    ("aws cloudwatch delete-alarms --alarm-names myalarm", False),
+    (
+        "aws cloudwatch put-dashboard --dashboard-name mydash --dashboard-body file://dash.json",
+        False,
+    ),
+    ("aws cloudwatch delete-dashboards --dashboard-names mydash", False),
+    (
+        "aws cloudwatch put-metric-data --namespace MyNamespace --metric-name MyMetric --value 1",
+        False,
+    ),
+    ("aws cloudwatch enable-alarm-actions --alarm-names myalarm", False),
+    ("aws cloudwatch disable-alarm-actions --alarm-names myalarm", False),
+    (
+        "aws cloudwatch set-alarm-state --alarm-name myalarm --state-value OK --state-reason testing",
+        False,
+    ),
+    # aws secretsmanager - Secrets Manager
+    ("aws secretsmanager list-secrets", True),
+    ("aws secretsmanager list-secrets --filters Key=name,Values=prod", True),
+    ("aws secretsmanager list-secret-version-ids --secret-id mysecret", True),
+    ("aws secretsmanager describe-secret --secret-id mysecret", True),
+    ("aws secretsmanager get-resource-policy --secret-id mysecret", True),
+    (
+        "aws secretsmanager get-secret-value --secret-id mysecret",
+        False,
+    ),  # accessing secret data
+    (
+        "aws secretsmanager get-secret-value --secret-id mysecret --version-stage AWSCURRENT",
+        False,
+    ),
+    (
+        "aws secretsmanager create-secret --name newsecret --secret-string 'myvalue'",
+        False,
+    ),
+    ("aws secretsmanager delete-secret --secret-id mysecret", False),
+    (
+        "aws secretsmanager delete-secret --secret-id mysecret --force-delete-without-recovery",
+        False,
+    ),
+    (
+        "aws secretsmanager update-secret --secret-id mysecret --secret-string 'newvalue'",
+        False,
+    ),
+    (
+        "aws secretsmanager put-secret-value --secret-id mysecret --secret-string 'value'",
+        False,
+    ),
+    ("aws secretsmanager rotate-secret --secret-id mysecret", False),
+    ("aws secretsmanager restore-secret --secret-id mysecret", False),
+    (
+        "aws secretsmanager tag-resource --secret-id mysecret --tags Key=env,Value=prod",
+        False,
+    ),
+    (
+        "aws secretsmanager put-resource-policy --secret-id mysecret --resource-policy file://policy.json",
+        False,
+    ),
+    # aws sqs - Simple Queue Service
+    ("aws sqs list-queues", True),
+    ("aws sqs list-queues --queue-name-prefix prod", True),
+    ("aws sqs list-queue-tags --queue-url https://sqs...", True),
+    ("aws sqs list-dead-letter-source-queues --queue-url https://sqs...", True),
+    ("aws sqs get-queue-url --queue-name myqueue", True),
+    (
+        "aws sqs get-queue-attributes --queue-url https://sqs... --attribute-names All",
+        True,
+    ),
+    ("aws sqs receive-message --queue-url https://sqs...", True),
+    (
+        "aws sqs receive-message --queue-url https://sqs... --max-number-of-messages 10",
+        True,
+    ),
+    ("aws sqs create-queue --queue-name newqueue", False),
+    ("aws sqs delete-queue --queue-url https://sqs...", False),
+    ("aws sqs purge-queue --queue-url https://sqs...", False),
+    ("aws sqs send-message --queue-url https://sqs... --message-body hello", False),
+    (
+        "aws sqs send-message-batch --queue-url https://sqs... --entries file://entries.json",
+        False,
+    ),
+    (
+        "aws sqs delete-message --queue-url https://sqs... --receipt-handle handle",
+        False,
+    ),
+    (
+        "aws sqs delete-message-batch --queue-url https://sqs... --entries file://entries.json",
+        False,
+    ),
+    (
+        "aws sqs set-queue-attributes --queue-url https://sqs... --attributes file://attrs.json",
+        False,
+    ),
+    (
+        "aws sqs add-permission --queue-url https://sqs... --label perm --aws-account-ids 123 --actions SendMessage",
+        False,
+    ),
+    ("aws sqs remove-permission --queue-url https://sqs... --label perm", False),
+    ("aws sqs tag-queue --queue-url https://sqs... --tags env=prod", False),
+    # aws sns - Simple Notification Service
+    ("aws sns list-topics", True),
+    ("aws sns list-subscriptions", True),
+    ("aws sns list-subscriptions-by-topic --topic-arn arn", True),
+    ("aws sns list-platform-applications", True),
+    (
+        "aws sns list-endpoints-by-platform-application --platform-application-arn arn",
+        True,
+    ),
+    ("aws sns list-phone-numbers-opted-out", True),
+    ("aws sns list-origination-numbers", True),
+    ("aws sns list-sms-sandbox-phone-numbers", True),
+    ("aws sns list-tags-for-resource --resource-arn arn", True),
+    ("aws sns get-topic-attributes --topic-arn arn", True),
+    ("aws sns get-subscription-attributes --subscription-arn arn", True),
+    ("aws sns get-sms-attributes", True),
+    ("aws sns get-sms-sandbox-account-status", True),
+    ("aws sns get-endpoint-attributes --endpoint-arn arn", True),
+    (
+        "aws sns get-platform-application-attributes --platform-application-arn arn",
+        True,
+    ),
+    ("aws sns get-data-protection-policy --resource-arn arn", True),
+    ("aws sns check-if-phone-number-is-opted-out --phone-number +1234567890", True),
+    ("aws sns create-topic --name newtopic", False),
+    ("aws sns delete-topic --topic-arn arn", False),
+    (
+        "aws sns subscribe --topic-arn arn --protocol email --notification-endpoint email@example.com",
+        False,
+    ),
+    ("aws sns unsubscribe --subscription-arn arn", False),
+    ("aws sns confirm-subscription --topic-arn arn --token token", False),
+    ("aws sns publish --topic-arn arn --message hello", False),
+    ("aws sns publish --phone-number +1234567890 --message hello", False),
+    (
+        "aws sns set-topic-attributes --topic-arn arn --attribute-name DisplayName --attribute-value name",
+        False,
+    ),
+    (
+        "aws sns set-subscription-attributes --subscription-arn arn --attribute-name RawMessageDelivery --attribute-value true",
+        False,
+    ),
+    (
+        "aws sns add-permission --topic-arn arn --label perm --aws-account-id 123 --action-name Publish",
+        False,
+    ),
+    ("aws sns remove-permission --topic-arn arn --label perm", False),
+    ("aws sns tag-resource --resource-arn arn --tags Key=env,Value=prod", False),
+    # aws kinesis - Kinesis Data Streams
+    ("aws kinesis list-streams", True),
+    ("aws kinesis list-shards --stream-name mystream", True),
+    ("aws kinesis list-stream-consumers --stream-arn arn", True),
+    ("aws kinesis list-tags-for-stream --stream-name mystream", True),
+    ("aws kinesis describe-stream --stream-name mystream", True),
+    ("aws kinesis describe-stream-summary --stream-name mystream", True),
+    (
+        "aws kinesis describe-stream-consumer --stream-arn arn --consumer-name consumer",
+        True,
+    ),
+    ("aws kinesis describe-limits", True),
+    (
+        "aws kinesis get-shard-iterator --stream-name mystream --shard-id shardId-000 --shard-iterator-type TRIM_HORIZON",
+        True,
+    ),
+    ("aws kinesis get-records --shard-iterator iter", True),
+    ("aws kinesis create-stream --stream-name newstream --shard-count 1", False),
+    ("aws kinesis delete-stream --stream-name mystream", False),
+    (
+        "aws kinesis put-record --stream-name mystream --partition-key key --data data",
+        False,
+    ),
+    (
+        "aws kinesis put-records --stream-name mystream --records file://records.json",
+        False,
+    ),
+    (
+        "aws kinesis split-shard --stream-name mystream --shard-to-split shardId-000 --new-starting-hash-key 123",
+        False,
+    ),
+    (
+        "aws kinesis merge-shards --stream-name mystream --shard-to-merge shardId-000 --adjacent-shard-to-merge shardId-001",
+        False,
+    ),
+    (
+        "aws kinesis increase-stream-retention-period --stream-name mystream --retention-period-hours 48",
+        False,
+    ),
+    (
+        "aws kinesis decrease-stream-retention-period --stream-name mystream --retention-period-hours 24",
+        False,
+    ),
+    (
+        "aws kinesis register-stream-consumer --stream-arn arn --consumer-name consumer",
+        False,
+    ),
+    (
+        "aws kinesis deregister-stream-consumer --stream-arn arn --consumer-name consumer",
+        False,
+    ),
+    (
+        "aws kinesis update-shard-count --stream-name mystream --target-shard-count 2 --scaling-type UNIFORM_SCALING",
+        False,
+    ),
+    # aws route53 - Route 53 DNS
+    ("aws route53 list-hosted-zones", True),
+    ("aws route53 list-hosted-zones-by-name", True),
+    ("aws route53 list-resource-record-sets --hosted-zone-id Z123", True),
+    ("aws route53 list-health-checks", True),
+    ("aws route53 list-query-logging-configs", True),
+    ("aws route53 list-traffic-policies", True),
+    ("aws route53 list-traffic-policy-instances", True),
+    ("aws route53 list-vpc-association-authorizations --hosted-zone-id Z123", True),
+    (
+        "aws route53 list-tags-for-resource --resource-type hostedzone --resource-id Z123",
+        True,
+    ),
+    (
+        "aws route53 list-tags-for-resources --resource-type hostedzone --resource-ids Z123",
+        True,
+    ),
+    ("aws route53 list-reusable-delegation-sets", True),
+    ("aws route53 list-geo-locations", True),
+    ("aws route53 list-cidr-collections", True),
+    ("aws route53 list-cidr-blocks --collection-id col", True),
+    ("aws route53 list-cidr-locations --collection-id col", True),
+    ("aws route53 get-hosted-zone --id Z123", True),
+    ("aws route53 get-hosted-zone-count", True),
+    ("aws route53 get-health-check --health-check-id hc123", True),
+    ("aws route53 get-health-check-count", True),
+    ("aws route53 get-health-check-status --health-check-id hc123", True),
+    ("aws route53 get-health-check-last-failure-reason --health-check-id hc123", True),
+    ("aws route53 get-geo-location --continent-code EU", True),
+    ("aws route53 get-change --id C123", True),
+    ("aws route53 get-checker-ip-ranges", True),
+    ("aws route53 get-dns-sec --hosted-zone-id Z123", True),
+    ("aws route53 get-query-logging-config --id qlc123", True),
+    ("aws route53 get-reusable-delegation-set --id N123", True),
+    ("aws route53 get-traffic-policy --id tp123 --version 1", True),
+    ("aws route53 get-traffic-policy-instance --id tpi123", True),
+    ("aws route53 get-traffic-policy-instance-count", True),
+    (
+        "aws route53 test-dns-answer --hosted-zone-id Z123 --record-name example.com --record-type A",
+        True,
+    ),
+    ("aws route53 create-hosted-zone --name example.com --caller-reference ref", False),
+    ("aws route53 delete-hosted-zone --id Z123", False),
+    (
+        "aws route53 change-resource-record-sets --hosted-zone-id Z123 --change-batch file://changes.json",
+        False,
+    ),
+    (
+        "aws route53 create-health-check --caller-reference ref --health-check-config file://config.json",
+        False,
+    ),
+    ("aws route53 delete-health-check --health-check-id hc123", False),
+    ("aws route53 update-health-check --health-check-id hc123 --port 443", False),
+    (
+        "aws route53 associate-vpc-with-hosted-zone --hosted-zone-id Z123 --vpc VPCRegion=us-east-1,VPCId=vpc-123",
+        False,
+    ),
+    (
+        "aws route53 disassociate-vpc-from-hosted-zone --hosted-zone-id Z123 --vpc VPCRegion=us-east-1,VPCId=vpc-123",
+        False,
+    ),
+    # aws cognito-idp - Cognito User Pools
+    ("aws cognito-idp list-user-pools --max-results 10", True),
+    ("aws cognito-idp list-users --user-pool-id us-east-1_abc123", True),
+    (
+        "aws cognito-idp list-users --user-pool-id us-east-1_abc123 --filter 'email = \"user@example.com\"'",
+        True,
+    ),
+    ("aws cognito-idp list-groups --user-pool-id us-east-1_abc123", True),
+    (
+        "aws cognito-idp list-users-in-group --user-pool-id us-east-1_abc123 --group-name mygroup",
+        True,
+    ),
+    ("aws cognito-idp list-user-pool-clients --user-pool-id us-east-1_abc123", True),
+    ("aws cognito-idp list-identity-providers --user-pool-id us-east-1_abc123", True),
+    ("aws cognito-idp list-resource-servers --user-pool-id us-east-1_abc123", True),
+    ("aws cognito-idp list-tags-for-resource --resource-arn arn", True),
+    ("aws cognito-idp describe-user-pool --user-pool-id us-east-1_abc123", True),
+    (
+        "aws cognito-idp describe-user-pool-client --user-pool-id us-east-1_abc123 --client-id clientid",
+        True,
+    ),
+    (
+        "aws cognito-idp describe-identity-provider --user-pool-id us-east-1_abc123 --provider-name Google",
+        True,
+    ),
+    (
+        "aws cognito-idp describe-resource-server --user-pool-id us-east-1_abc123 --identifier myrs",
+        True,
+    ),
+    (
+        "aws cognito-idp describe-user-import-job --user-pool-id us-east-1_abc123 --job-id jobid",
+        True,
+    ),
+    ("aws cognito-idp get-user-pool-mfa-config --user-pool-id us-east-1_abc123", True),
+    (
+        "aws cognito-idp get-group --user-pool-id us-east-1_abc123 --group-name mygroup",
+        True,
+    ),
+    ("aws cognito-idp get-ui-customization --user-pool-id us-east-1_abc123", True),
+    ("aws cognito-idp get-csv-header --user-pool-id us-east-1_abc123", True),
+    ("aws cognito-idp get-signing-certificate --user-pool-id us-east-1_abc123", True),
+    (
+        "aws cognito-idp admin-get-user --user-pool-id us-east-1_abc123 --username myuser",
+        True,
+    ),
+    (
+        "aws cognito-idp admin-list-groups-for-user --user-pool-id us-east-1_abc123 --username myuser",
+        True,
+    ),
+    (
+        "aws cognito-idp admin-list-user-auth-events --user-pool-id us-east-1_abc123 --username myuser",
+        True,
+    ),
+    (
+        "aws cognito-idp admin-list-devices --user-pool-id us-east-1_abc123 --username myuser",
+        True,
+    ),
+    ("aws cognito-idp create-user-pool --pool-name newpool", False),
+    ("aws cognito-idp delete-user-pool --user-pool-id us-east-1_abc123", False),
+    (
+        "aws cognito-idp update-user-pool --user-pool-id us-east-1_abc123 --auto-verified-attributes email",
+        False,
+    ),
+    (
+        "aws cognito-idp admin-create-user --user-pool-id us-east-1_abc123 --username newuser",
+        False,
+    ),
+    (
+        "aws cognito-idp admin-delete-user --user-pool-id us-east-1_abc123 --username myuser",
+        False,
+    ),
+    (
+        "aws cognito-idp admin-set-user-password --user-pool-id us-east-1_abc123 --username myuser --password pass --permanent",
+        False,
+    ),
+    (
+        "aws cognito-idp admin-confirm-sign-up --user-pool-id us-east-1_abc123 --username myuser",
+        False,
+    ),
+    (
+        "aws cognito-idp admin-enable-user --user-pool-id us-east-1_abc123 --username myuser",
+        False,
+    ),
+    (
+        "aws cognito-idp admin-disable-user --user-pool-id us-east-1_abc123 --username myuser",
+        False,
+    ),
+    (
+        "aws cognito-idp admin-add-user-to-group --user-pool-id us-east-1_abc123 --username myuser --group-name mygroup",
+        False,
+    ),
+    (
+        "aws cognito-idp admin-remove-user-from-group --user-pool-id us-east-1_abc123 --username myuser --group-name mygroup",
+        False,
+    ),
+    (
+        "aws cognito-idp admin-reset-user-password --user-pool-id us-east-1_abc123 --username myuser",
+        False,
+    ),
+    (
+        "aws cognito-idp create-group --user-pool-id us-east-1_abc123 --group-name newgroup",
+        False,
+    ),
+    (
+        "aws cognito-idp delete-group --user-pool-id us-east-1_abc123 --group-name mygroup",
+        False,
+    ),
+    # aws ssm - Systems Manager
+    ("aws ssm list-commands", True),
+    ("aws ssm list-command-invocations --command-id cmd123", True),
+    ("aws ssm list-documents", True),
+    ("aws ssm list-document-versions --name mydoc", True),
+    ("aws ssm list-associations", True),
+    ("aws ssm list-association-versions --association-id assoc123", True),
+    (
+        "aws ssm list-inventory-entries --instance-id i-123 --type-name AWS:Application",
+        True,
+    ),
+    ("aws ssm list-resource-compliance-summaries", True),
+    (
+        "aws ssm list-compliance-items --resource-ids i-123 --resource-types ManagedInstance",
+        True,
+    ),
+    ("aws ssm list-compliance-summaries", True),
+    (
+        "aws ssm list-tags-for-resource --resource-type Document --resource-id mydoc",
+        True,
+    ),
+    ("aws ssm describe-instance-information", True),
+    (
+        "aws ssm describe-instance-information --instance-information-filter-list key=InstanceIds,valueSet=i-123",
+        True,
+    ),
+    ("aws ssm describe-parameters", True),
+    ("aws ssm describe-document --name mydoc", True),
+    ("aws ssm describe-automation-executions", True),
+    (
+        "aws ssm describe-automation-step-executions --automation-execution-id exec123",
+        True,
+    ),
+    ("aws ssm describe-maintenance-windows", True),
+    ("aws ssm describe-maintenance-window-executions --window-id mw-123", True),
+    ("aws ssm describe-patch-baselines", True),
+    ("aws ssm describe-patch-groups", True),
+    ("aws ssm describe-patch-group-state --patch-group mygroup", True),
+    ("aws ssm describe-instance-patches --instance-id i-123", True),
+    ("aws ssm describe-instance-patch-states --instance-ids i-123", True),
+    (
+        "aws ssm describe-effective-patches-for-patch-baseline --baseline-id pb-123",
+        True,
+    ),
+    ("aws ssm describe-ops-items", True),
+    ("aws ssm describe-sessions --state Active", True),
+    ("aws ssm get-parameter --name /my/param", True),
+    (
+        "aws ssm get-parameter --name /my/param --with-decryption",
+        False,
+    ),  # decryption could expose secrets
+    ("aws ssm get-parameters --names /my/param1 /my/param2", True),
+    ("aws ssm get-parameters --names /my/param1 --with-decryption", False),
+    ("aws ssm get-parameters-by-path --path /my/path", True),
+    ("aws ssm get-parameters-by-path --path /my/path --with-decryption", False),
+    ("aws ssm get-parameter-history --name /my/param", True),
+    ("aws ssm get-parameter-history --name /my/param --with-decryption", False),
+    ("aws ssm get-document --name mydoc", True),
+    ("aws ssm get-command-invocation --command-id cmd123 --instance-id i-123", True),
+    ("aws ssm get-automation-execution --automation-execution-id exec123", True),
+    ("aws ssm get-maintenance-window --window-id mw-123", True),
+    ("aws ssm get-maintenance-window-execution --window-execution-id we-123", True),
+    ("aws ssm get-patch-baseline --baseline-id pb-123", True),
+    ("aws ssm get-ops-item --ops-item-id oi-123", True),
+    ("aws ssm get-inventory-schema", True),
+    ("aws ssm get-connection-status --target i-123", True),
+    ("aws ssm put-parameter --name /my/param --value myvalue --type String", False),
+    (
+        "aws ssm put-parameter --name /my/param --value myvalue --type SecureString",
+        False,
+    ),
+    ("aws ssm delete-parameter --name /my/param", False),
+    ("aws ssm delete-parameters --names /my/param1 /my/param2", False),
+    (
+        "aws ssm send-command --instance-ids i-123 --document-name AWS-RunShellScript --parameters commands=ls",
+        False,
+    ),
+    ("aws ssm start-automation-execution --document-name mydoc", False),
+    ("aws ssm stop-automation-execution --automation-execution-id exec123", False),
+    ("aws ssm cancel-command --command-id cmd123", False),
+    (
+        "aws ssm create-document --name newdoc --content file://doc.json --document-type Command",
+        False,
+    ),
+    ("aws ssm delete-document --name mydoc", False),
+    (
+        "aws ssm update-document --name mydoc --content file://doc.json --document-version '$LATEST'",
+        False,
+    ),
+    ("aws ssm start-session --target i-123", False),
+    ("aws ssm terminate-session --session-id sess123", False),
+    # aws configure - AWS CLI configuration (not the service)
+    ("aws configure list", True),
+    ("aws configure list-profiles", True),
+    ("aws configure get region", True),
+    ("aws configure get aws_access_key_id", True),
+    ("aws configure set region us-east-1", False),
+    ("aws configure set aws_access_key_id AKIA...", False),
+    ("aws configure sso", False),
+    ("aws configure sso-session", False),
+    ("aws configure import --csv file://creds.csv", False),
+    ("aws configure export-credentials", False),
+    # aws help
+    ("aws help", True),
+    ("aws ec2 help", True),
+    ("aws ec2 describe-instances help", True),
+    ("aws s3 help", True),
+    ("aws iam help", True),
+    #
+    # ==========================================================================
+    # Unix utilities with custom checks
+    # ==========================================================================
+    #
+    # find tests are in test_find.py
+    ("sort file.txt", True),
+    ("sort -o output.txt file.txt", False),
+    ("sed 's/foo/bar/' file.txt", True),
+    ("sed -n '1,10p' file.txt", True),
+    ("sed -i 's/foo/bar/' file.txt", False),
+    ("sed -i.bak 's/foo/bar/' file.txt", False),
+    ("sed --in-place 's/foo/bar/' file.txt", False),
+    ("awk '{print $1}' file.txt", True),
+    ("awk -F: '{print $1}' /etc/passwd", True),
+    ("awk -f script.awk file.txt", False),
+    ("awk '{print > \"out.txt\"}' file.txt", False),
+    ("awk '{system(\"rm file\")}'", False),
+    # Curl tests are in test_curl.py
+    # Chained commands - should check ALL commands
+    ("aws s3 ls && aws s3 ls", True),  # both safe
+    ("aws s3 ls && aws s3 rm foo", False),  # second unsafe
+    ("aws s3 rm foo && aws s3 ls", False),  # first unsafe
+    ("git status || git push", False),  # second unsafe
+    # Pipes - should check ALL commands
+    ("git log | grep foo", True),  # both safe (grep handled separately?)
+    ("docker ps | grep foo", True),
+    # Wrappers - should unwrap and check inner command
+    ("time git status", True),
+    ("time aws s3 ls", True),
+    ("time aws s3 rm foo", False),
+    ("nice git log", True),
+    ("nice -n 10 git status", True),
+    ("timeout 5 kubectl get pods", True),
+    # Nested wrappers
+    ("time nice git status", True),
+    # uv run wrapper
+    ("uv run cdk synth", True),
+    ("uv run cdk synth --quiet", True),
+    ("uv run --quiet cdk diff", True),
+    ("uv run cdk deploy", False),
+    ("uv run rm foo", False),
+    ("uv sync", True),
+    ("uv sync --all-groups", True),
+    ("uv lock", True),
+    ("uv add foo", False),
+    ("uv remove foo", False),
+    ("uv pip install foo", False),
+    ("uv version", True),
+    ("uv tree", True),
+    ("uv pip list", True),
+    ("uv pip show foo", True),
+    (
+        "uv run ruff check --fix && uv run ruff format",
+        False,
+    ),  # --fix and format modify code
+    ("uv run --project tools-base-mcp ruff check", True),
+    ("uv run --project tools-base-mcp ruff format", False),  # format modifies code
+    ("uv run --group cdk cdk synth", True),
+    ("uv run --group cdk cdk deploy", False),
+    ("uv run pytest", False),  # pytest executes arbitrary code
+    ("uv run pytest -v tests/", False),
+    ("pytest", False),
+    ("pytest -xvs tests/test_foo.py", False),
+    ("uv run ruff check", True),
+    ("uv run ruff format", False),  # format modifies code
+    ("ruff check --fix", False),  # --fix modifies code
+    ("ruff format .", False),  # format modifies code
+    ("ruff clean", False),  # not in safe actions
+    # Complex chains with wrappers
+    ("time git status && git log", True),
+    ("time git status && git push", False),
+    # Simple commands (now handled by hook too)
+    ("ls", True),
+    ("ls -la", True),
+    ("grep foo bar.txt", True),
+    ("cat file.txt", True),
+    # Scripts need confirmation (no custom safe list)
+    ("./unknown-script.py", False),
+    # Python running dippy (allow dippy to run itself) - tested separately
+    ("python malicious.py", False),
+    ("python script.py", False),
+    ("python /tmp/fake/dippy.py", False),
+    # Simple commands chained
+    ("ls && cat foo", True),
+    ("ls && rm foo", False),
+    # Output redirects - should defer (write to files)
+    ("ls > file.txt", False),
+    ("cat foo >> bar.txt", False),
+    ("ls 2> err.txt", False),
+    ("cmd &> all.txt", False),
+    ("git log > changes.txt", False),
+    # Safe redirects to /dev/null
+    ("echo test >/dev/null", True),
+    ("echo test >>/dev/null", True),
+    ("grep foo bar 2>/dev/null", True),
+    ("ls 2>>/dev/null", True),
+    ("ls &>/dev/null", True),
+    ("ls &>>/dev/null", True),
+    ("grep -r pattern /dir 2>/dev/null | head -10", True),
+    # fd redirects (2>&1 style) - safe
+    ("ls 2>&1", True),
+    ("uv run cdk synth 2>&1 | head -10", True),
+    # Input redirects - safe (read only)
+    ("cat < input.txt", True),
+    ("grep foo < file.txt", True),
+    # Heredocs - safe for read-only commands
+    ("cat <<EOF\nhello\nEOF", True),
+    ("cat <<-EOF\n\thello\nEOF", True),
+    ("cat <<'EOF'\nhello\nEOF", True),
+    ("head <<EOF\nline1\nline2\nEOF", True),
+    # Heredocs - blocked for shell execution
+    ("bash <<EOF\necho hi\nEOF", False),
+    ("sh <<EOF\necho hi\nEOF", False),
+    ("zsh <<EOF\necho hi\nEOF", False),
+    # Heredocs with redirects - blocked
+    ("cat <<EOF > output.txt\nhello\nEOF", False),
+    # Command substitution - safe for SIMPLE_SAFE commands
+    ("ls $(pwd)", True),
+    ("echo $(whoami)", True),
+    ("cat $(ls *.txt)", True),
+    ("head -10 $(find . -name '*.py')", True),
+    # Command substitution - embedded in args is safe
+    ("git diff foo-$(date -u).txt", True),
+    ("aws s3 ls s3://$(echo bucket)/path", True),
+    ("docker logs app-$(date +%Y%m%d)", True),
+    # Command substitution - pure cmdsub in handler CLIs blocked (injection risk)
+    ("git $(echo status)", False),
+    ("git $(echo rm) foo.txt", False),
+    ("docker $(echo run) alpine", False),
+    ("kubectl $(echo delete) pod foo", False),
+    # Command substitution - unsafe inner command blocked
+    ("echo $(rm -rf /)", False),
+    ("ls $(docker run alpine)", False),
+    ("cat $(git push origin main)", False),
+    # Command substitution - nested cmdsubs must check inner
+    ("echo $(cat $(rm -rf /))", False),
+    ("ls $(head $(git push))", False),
+    ("cat $(echo $(docker run alpine))", False),
+    # Command substitution - position 0 (command itself is cmdsub)
+    ("$(echo ls)", False),
+    ("$(echo rm) file.txt", False),
+    # Command substitution - backtick syntax
+    ("echo `whoami`", True),
+    ("echo `rm -rf /`", False),
+    ("ls `pwd`", True),
+    # Command substitution - multiple cmdsubs
+    ("echo $(whoami) $(date)", True),
+    ("ls $(pwd) $(echo /tmp)", True),
+    # Command substitution - cmdsub in flag value (embedded, safe)
+    ("git --git-dir=$(pwd)/.git status", True),
+    ("grep --include=$(echo '*.py') pattern .", True),
+    # Mixed chains with redirects
+    ("ls && cat foo > out.txt", False),
+    ("cat < in.txt && ls", True),
+    # Variable assignment prefix
+    ("FOO=BAR ls -l", True),
+    ("FOO=BAR rm file", False),
+    # Prefix commands
+    ("git config --get user.name", True),
+    ("git config --list", True),
+    ("git stash list", True),
+    ("node --version", True),
+    ("python --version", True),
+    # Prefix commands - unsafe variants
+    ("git config user.name foo", False),
+    ("git config --unset user.name", False),
+    ("git stash pop", False),
+    ("git stash drop", False),
+    ("node script.js", False),
+    ("python script.py", False),
+    # Prefix commands in pipelines
+    ("git config --get user.name | cat", True),
+    ("node --version && ls", True),
+    ("python --version | grep 3", True),
+    # Prefix commands - partial token matches should NOT match
+    ("python --version-info", False),
+    ("pre-commit-hook", False),
+    # --help makes any command safe
+    ("gh api --help", True),
+    ("gh api repos --help", True),
+    ("aws s3 rm --help", True),
+    ("kubectl delete --help", True),
+    ("docker run --help", True),
+    ("git push --help", True),
+    ("unknown-command --help", True),
+    ("./mystery-script.sh --help", True),
+    #
+    # ==========================================================================
+    # Docker
+    # ==========================================================================
+    #
+    # docker - read-only inspection commands are safe
+    # Safe: ps, images, inspect, logs, top, port, stats, history, events, diff,
+    #       version, info, search
+    # Unsafe: run, exec, build, start, stop, kill, pause, unpause, restart, rm,
+    #         rmi, pull, push, create, commit, tag, cp, attach, export, import,
+    #         load, save, rename, update, wait
+    #
+    # docker ps / container ls - list containers
+    ("docker ps", True),
+    ("docker ps -a", True),
+    ("docker ps --all", True),
+    ("docker ps --format '{{.Names}}'", True),
+    ("docker container ls", True),
+    ("docker container ls -a", True),
+    # docker images / image ls - list images
+    ("docker images", True),
+    ("docker images -a", True),
+    ("docker images --format '{{.Repository}}'", True),
+    ("docker image ls", True),
+    ("docker image ls -a", True),
+    # docker inspect - inspect objects
+    ("docker inspect mycontainer", True),
+    ("docker inspect --format '{{.State.Running}}' mycontainer", True),
+    ("docker container inspect mycontainer", True),
+    ("docker image inspect myimage", True),
+    ("docker volume inspect myvol", True),
+    ("docker network inspect mynet", True),
+    # docker logs - view container logs
+    ("docker logs mycontainer", True),
+    ("docker logs -f mycontainer", True),
+    ("docker logs --tail 100 mycontainer", True),
+    ("docker logs --since 1h mycontainer", True),
+    ("docker container logs mycontainer", True),
+    # docker top - show processes
+    ("docker top mycontainer", True),
+    ("docker top mycontainer aux", True),
+    ("docker container top mycontainer", True),
+    # docker port - show port mappings
+    ("docker port mycontainer", True),
+    ("docker port mycontainer 80", True),
+    # docker stats - resource usage
+    ("docker stats", True),
+    ("docker stats mycontainer", True),
+    ("docker stats --no-stream", True),
+    ("docker container stats mycontainer", True),
+    # docker history - image history
+    ("docker history myimage", True),
+    ("docker history --no-trunc myimage", True),
+    ("docker image history myimage", True),
+    # docker events - real-time events
+    ("docker events", True),
+    ("docker events --since 1h", True),
+    ("docker events --filter container=mycontainer", True),
+    ("docker system events", True),
+    # docker diff - filesystem changes
+    ("docker diff mycontainer", True),
+    ("docker container diff mycontainer", True),
+    # docker version / info - system info
+    ("docker version", True),
+    ("docker info", True),
+    ("docker system info", True),
+    ("docker system df", True),
+    # docker search - search Docker Hub
+    ("docker search nginx", True),
+    ("docker search --limit 10 nginx", True),
+    # docker context - context management (read-only)
+    ("docker context ls", True),
+    ("docker context show", True),
+    ("docker context inspect mycontext", True),
+    # docker network - network inspection (read-only)
+    ("docker network ls", True),
+    ("docker network inspect bridge", True),
+    # docker volume - volume inspection (read-only)
+    ("docker volume ls", True),
+    ("docker volume inspect myvol", True),
+    # docker with global flags
+    ("docker --host tcp://localhost:2375 ps", True),
+    ("docker -H tcp://localhost:2375 ps", True),
+    ("docker --context mycontext ps", True),
+    ("docker -c mycontext images", True),
+    ("docker --log-level debug ps", True),
+    ("docker -l debug images", True),
+    ("docker --config /path/to/config ps", True),
+    #
+    # docker - unsafe (container lifecycle)
+    #
+    ("docker run ubuntu", False),
+    ("docker run -it ubuntu bash", False),
+    ("docker run -d nginx", False),
+    ("docker run --rm alpine echo hello", False),
+    ("docker container run ubuntu", False),
+    ("docker start mycontainer", False),
+    ("docker container start mycontainer", False),
+    ("docker stop mycontainer", False),
+    ("docker container stop mycontainer", False),
+    ("docker kill mycontainer", False),
+    ("docker container kill mycontainer", False),
+    ("docker restart mycontainer", False),
+    ("docker container restart mycontainer", False),
+    ("docker pause mycontainer", False),
+    ("docker container pause mycontainer", False),
+    ("docker unpause mycontainer", False),
+    ("docker container unpause mycontainer", False),
+    ("docker wait mycontainer", False),
+    ("docker container wait mycontainer", False),
+    #
+    # docker - unsafe (image/container mutations)
+    #
+    ("docker create ubuntu", False),
+    ("docker container create ubuntu", False),
+    ("docker rm mycontainer", False),
+    ("docker rm -f mycontainer", False),
+    ("docker container rm mycontainer", False),
+    ("docker rmi myimage", False),
+    ("docker image rm myimage", False),
+    ("docker build .", False),
+    ("docker build -t myimage .", False),
+    ("docker image build -t myimage .", False),
+    ("docker commit mycontainer myimage", False),
+    ("docker container commit mycontainer", False),
+    ("docker tag myimage myrepo:tag", False),
+    ("docker image tag myimage myrepo:tag", False),
+    #
+    # docker - unsafe (registry operations)
+    #
+    ("docker pull nginx", False),
+    ("docker pull nginx:latest", False),
+    ("docker image pull nginx", False),
+    ("docker push myrepo/myimage", False),
+    ("docker image push myrepo/myimage", False),
+    ("docker login", False),
+    ("docker login -u user", False),
+    ("docker logout", False),
+    #
+    # docker - unsafe (file operations that modify filesystem)
+    #
+    ("docker cp mycontainer:/path /local", False),
+    ("docker cp /local mycontainer:/path", False),
+    ("docker container cp mycontainer:/path /local", False),
+    ("docker import export.tar myimage", False),
+    ("docker image import export.tar", False),
+    ("docker load < image.tar", False),
+    ("docker image load -i image.tar", False),
+    #
+    # docker - safe (export/save just output data to stdout, don't modify anything)
+    # Note: redirects like "> file.tar" are caught by redirect detection
+    #
+    ("docker export mycontainer", True),
+    ("docker container export mycontainer", True),
+    ("docker save myimage", True),
+    ("docker image save myimage", True),
+    # But redirects to files are caught
+    ("docker export mycontainer > export.tar", False),
+    ("docker save myimage > image.tar", False),
+    ("docker image save myimage -o image.tar", False),  # -o writes to file
+    #
+    # docker - unsafe (container modifications)
+    #
+    ("docker rename oldname newname", False),
+    ("docker container rename oldname newname", False),
+    ("docker update --memory 512m mycontainer", False),
+    ("docker container update --cpus 2 mycontainer", False),
+    ("docker attach mycontainer", False),
+    ("docker container attach mycontainer", False),
+    #
+    # docker - unsafe (system operations)
+    #
+    ("docker system prune", False),
+    ("docker system prune -a", False),
+    ("docker container prune", False),
+    ("docker image prune", False),
+    ("docker volume prune", False),
+    ("docker network prune", False),
+    ("docker builder prune", False),
+    #
+    # docker - unsafe (network mutations)
+    #
+    ("docker network create mynet", False),
+    ("docker network rm mynet", False),
+    ("docker network connect mynet mycontainer", False),
+    ("docker network disconnect mynet mycontainer", False),
+    #
+    # docker - unsafe (volume mutations)
+    #
+    ("docker volume create myvol", False),
+    ("docker volume rm myvol", False),
+    #
+    # docker - unsafe (context mutations)
+    #
+    ("docker context create mycontext", False),
+    ("docker context rm mycontext", False),
+    ("docker context update mycontext", False),
+    ("docker context use mycontext", False),
+    #
+    # ==========================================================================
+    # Docker Compose
+    # ==========================================================================
+    #
+    # docker compose - read-only commands are safe
+    # Safe: ps, logs, config, images, top, version, ls, port, events
+    # Unsafe: up, down, start, stop, exec, run, build, pull, push, rm, kill,
+    #         restart, pause, unpause, create, scale, cp, attach, wait, watch
+    #
+    # docker compose - safe (inspection)
+    ("docker compose ps", True),
+    ("docker compose ps -a", True),
+    ("docker compose logs", True),
+    ("docker compose logs -f", True),
+    ("docker compose logs web", True),
+    ("docker compose config", True),
+    ("docker compose config --services", True),
+    ("docker compose images", True),
+    ("docker compose top", True),
+    ("docker compose version", True),
+    ("docker compose ls", True),
+    ("docker compose port web 80", True),
+    ("docker compose events", True),
+    # docker compose with project flags
+    ("docker compose -f docker-compose.yml ps", True),
+    ("docker compose --file docker-compose.yml logs", True),
+    ("docker compose -p myproject ps", True),
+    ("docker compose --project-name myproject logs", True),
+    ("docker compose --project-directory /path ps", True),
+    ("docker compose --env-file .env ps", True),
+    #
+    # docker compose - unsafe (lifecycle)
+    #
+    ("docker compose up", False),
+    ("docker compose up -d", False),
+    ("docker compose up --build", False),
+    ("docker compose down", False),
+    ("docker compose down -v", False),
+    ("docker compose start", False),
+    ("docker compose start web", False),
+    ("docker compose stop", False),
+    ("docker compose stop web", False),
+    ("docker compose restart", False),
+    ("docker compose restart web", False),
+    ("docker compose kill", False),
+    ("docker compose kill web", False),
+    ("docker compose pause", False),
+    ("docker compose unpause", False),
+    #
+    # docker compose - unsafe (exec/run)
+    #
+    ("docker compose exec web bash", False),
+    ("docker compose exec -it web sh", False),
+    ("docker compose run web echo hello", False),
+    ("docker compose run --rm web pytest", False),
+    #
+    # docker compose - unsafe (build/registry)
+    #
+    ("docker compose build", False),
+    ("docker compose build web", False),
+    ("docker compose pull", False),
+    ("docker compose pull web", False),
+    ("docker compose push", False),
+    ("docker compose push web", False),
+    #
+    # docker compose - unsafe (container management)
+    #
+    ("docker compose rm", False),
+    ("docker compose rm -f", False),
+    ("docker compose create", False),
+    ("docker compose scale web=3", False),
+    ("docker compose cp web:/path /local", False),
+    ("docker compose attach web", False),
+    ("docker compose wait web", False),
+    ("docker compose watch", False),
+    #
+    # docker compose - unsafe (misc)
+    #
+    ("docker compose commit web myimage", False),
+    ("docker compose export web", False),
+    ("docker compose publish", False),
+    #
+    # ==========================================================================
+    # Git
+    # ==========================================================================
+    #
+    # git - safe (read-only commands)
+    ("git status", True),
+    ("git status -s", True),
+    ("git status --short", True),
+    ("git status --porcelain", True),
+    ("git status -b", True),
+    ("git log", True),
+    ("git log -10", True),
+    ("git log --oneline", True),
+    ("git log --oneline -5", True),
+    ("git log --graph", True),
+    ("git log --graph --oneline --all", True),
+    ("git log --stat", True),
+    ("git log -p", True),
+    ("git log --patch", True),
+    ("git log --author='John'", True),
+    ("git log --since='2 weeks ago'", True),
+    ("git log --grep='fix'", True),
+    ("git log main..feature", True),
+    ("git log HEAD~5..HEAD", True),
+    ("git diff", True),
+    ("git diff HEAD", True),
+    ("git diff --staged", True),
+    ("git diff --cached", True),
+    ("git diff main..feature", True),
+    ("git diff HEAD~1", True),
+    ("git diff --stat", True),
+    ("git diff --name-only", True),
+    ("git diff --name-status", True),
+    ("git diff file.txt", True),
+    ("git show", True),
+    ("git show HEAD", True),
+    ("git show HEAD:file.txt", True),
+    ("git show --stat", True),
+    ("git show v1.0", True),
+    ("git show abc123", True),
+    ("git blame file.txt", True),
+    ("git blame -L 10,20 file.txt", True),
+    ("git blame --date=short file.txt", True),
+    ("git shortlog", True),
+    ("git shortlog -sn", True),
+    ("git shortlog --summary --numbered", True),
+    ("git reflog", True),
+    ("git reflog show", True),
+    ("git reflog show HEAD", True),
+    ("git branch", True),
+    ("git branch -a", True),
+    ("git branch --all", True),
+    ("git branch -v", True),
+    ("git branch -vv", True),
+    ("git branch --list", True),
+    ("git branch --list 'feature/*'", True),
+    ("git branch --show-current", True),
+    ("git branch -r", True),
+    ("git branch --remote", True),
+    ("git branch --contains abc123", True),
+    ("git branch --merged", True),
+    ("git branch --no-merged", True),
+    ("git tag", True),
+    ("git tag -l", True),
+    ("git tag --list", True),
+    ("git tag -l 'v1.*'", True),
+    ("git tag --contains abc123", True),
+    ("git tag -n", True),
+    ("git remote", True),
+    ("git remote -v", True),
+    ("git remote --verbose", True),
+    ("git remote show origin", True),
+    ("git remote get-url origin", True),
+    ("git ls-files", True),
+    ("git ls-files -s", True),
+    ("git ls-files --cached", True),
+    ("git ls-files --modified", True),
+    ("git ls-files --others", True),
+    ("git ls-tree HEAD", True),
+    ("git ls-tree -r HEAD", True),
+    ("git ls-remote", True),
+    ("git ls-remote origin", True),
+    ("git ls-remote --tags origin", True),
+    ("git config --get user.name", True),
+    ("git config --get user.email", True),
+    ("git config --get-all user.name", True),
+    ("git config --list", True),
+    ("git config -l", True),
+    ("git config --list --global", True),
+    ("git config --list --local", True),
+    ("git config --show-origin user.name", True),
+    ("git stash list", True),
+    ("git stash show", True),
+    ("git stash show -p", True),
+    ("git stash show --patch stash@{0}", True),
+    ("git describe", True),
+    ("git describe --tags", True),
+    ("git describe --always", True),
+    ("git rev-parse HEAD", True),
+    ("git rev-parse --short HEAD", True),
+    ("git rev-parse --abbrev-ref HEAD", True),
+    ("git rev-parse --show-toplevel", True),
+    ("git rev-list HEAD", True),
+    ("git rev-list --count HEAD", True),
+    ("git rev-list main..feature", True),
+    ("git name-rev HEAD", True),
+    ("git name-rev abc123", True),
+    ("git merge-base main feature", True),
+    ("git merge-base --is-ancestor main feature", True),
+    ("git cat-file -t HEAD", True),
+    ("git cat-file -p HEAD", True),
+    ("git cat-file -s HEAD", True),
+    ("git check-ignore file.txt", True),
+    ("git check-ignore -v file.txt", True),
+    ("git cherry main", True),
+    ("git cherry -v main feature", True),
+    ("git for-each-ref", True),
+    ("git for-each-ref --sort=-committerdate", True),
+    ("git for-each-ref refs/heads/", True),
+    ("git grep pattern", True),
+    ("git grep -n pattern", True),
+    ("git grep --count pattern", True),
+    ("git grep -i pattern", True),
+    ("git count-objects", True),
+    ("git count-objects -v", True),
+    ("git fsck", True),
+    ("git fsck --full", True),
+    ("git verify-commit HEAD", True),
+    ("git verify-tag v1.0", True),
+    ("git notes list", True),
+    ("git notes show", True),
+    ("git worktree list", True),
+    ("git fetch", True),
+    ("git fetch origin", True),
+    ("git fetch --all", True),
+    ("git fetch --tags", True),
+    ("git fetch --prune", True),
+    ("git fetch origin main", True),
+    # git - safe (with flags)
+    ("git -C /some/path status", True),
+    ("git -C /some/path log --oneline -5", True),
+    ("git --git-dir=/some/.git status", True),
+    ("git -c core.editor=vim log", True),
+    ("git --no-pager log -5", True),
+    ("git --paginate diff", True),
+    ("git --help", True),
+    ("git -h", True),
+    ("git status --help", True),
+    ("git --version", True),
+    # git - unsafe (mutations)
+    ("git add file.txt", False),
+    ("git add .", False),
+    ("git add -A", False),
+    ("git add --all", False),
+    ("git add -p", False),
+    ("git add --patch", False),
+    ("git commit", False),
+    ("git commit -m 'message'", False),
+    ("git commit -am 'message'", False),
+    ("git commit --amend", False),
+    ("git commit --amend --no-edit", False),
+    ("git commit --fixup HEAD", False),
+    ("git push", False),
+    ("git push origin main", False),
+    ("git push -u origin feature", False),
+    ("git push --force", False),
+    ("git push --force-with-lease", False),
+    ("git push --tags", False),
+    ("git push origin --delete feature", False),
+    ("git pull", False),
+    ("git pull origin main", False),
+    ("git pull --rebase", False),
+    ("git pull --ff-only", False),
+    ("git merge feature", False),
+    ("git merge --no-ff feature", False),
+    ("git merge --squash feature", False),
+    ("git merge --abort", False),
+    ("git rebase main", False),
+    ("git rebase -i HEAD~3", False),
+    ("git rebase --interactive main", False),
+    ("git rebase --continue", False),
+    ("git rebase --abort", False),
+    ("git rebase --skip", False),
+    ("git cherry-pick abc123", False),
+    ("git cherry-pick --continue", False),
+    ("git cherry-pick --abort", False),
+    ("git checkout feature", False),
+    ("git checkout -b new-branch", False),
+    ("git checkout -- file.txt", False),
+    ("git checkout HEAD~1 -- file.txt", False),
+    ("git switch feature", False),
+    ("git switch -c new-branch", False),
+    ("git switch --create new-branch", False),
+    ("git restore file.txt", False),
+    ("git restore --staged file.txt", False),
+    ("git restore --source=HEAD~1 file.txt", False),
+    # git - unsafe (branch/tag mutations)
+    ("git branch new-branch", False),
+    ("git branch -d feature", False),
+    ("git branch -D feature", False),
+    ("git branch --delete feature", False),
+    ("git branch -m old new", False),
+    ("git branch -M old new", False),
+    ("git branch --move old new", False),
+    ("git branch --set-upstream-to=origin/main", False),
+    ("git tag v1.0", False),
+    ("git tag -a v1.0 -m 'Version 1.0'", False),
+    ("git tag -d v1.0", False),
+    ("git tag --delete v1.0", False),
+    # git - unsafe (remote mutations)
+    ("git remote add origin https://github.com/user/repo.git", False),
+    ("git remote remove origin", False),
+    ("git remote rm origin", False),
+    ("git remote rename origin upstream", False),
+    ("git remote set-url origin https://new-url.git", False),
+    ("git remote prune origin", False),
+    # git - unsafe (config mutations)
+    ("git config user.name 'John Doe'", False),
+    ("git config --global user.email 'john@example.com'", False),
+    ("git config --unset user.name", False),
+    ("git config --edit", False),
+    ("git config -e", False),
+    ("git config --global --edit", False),
+    # git - unsafe (stash mutations)
+    ("git stash", False),
+    ("git stash push", False),
+    ("git stash push -m 'message'", False),
+    ("git stash -u", False),
+    ("git stash --include-untracked", False),
+    ("git stash pop", False),
+    ("git stash pop stash@{0}", False),
+    ("git stash apply", False),
+    ("git stash apply stash@{1}", False),
+    ("git stash drop", False),
+    ("git stash drop stash@{0}", False),
+    ("git stash clear", False),
+    ("git stash branch new-branch", False),
+    # git - unsafe (history rewriting)
+    ("git reset HEAD~1", False),
+    ("git reset --soft HEAD~1", False),
+    ("git reset --hard HEAD~1", False),
+    ("git reset --mixed HEAD~1", False),
+    ("git reset file.txt", False),
+    ("git revert HEAD", False),
+    ("git revert abc123", False),
+    ("git revert --no-commit HEAD", False),
+    ("git clean -f", False),
+    ("git clean -fd", False),
+    ("git clean -fx", False),
+    ("git clean --force", False),
+    ("git clean -n", False),  # dry-run but still marks files for deletion
+    # git - unsafe (repository management)
+    ("git init", False),
+    ("git init --bare", False),
+    ("git clone https://github.com/user/repo.git", False),
+    ("git clone --depth 1 https://github.com/user/repo.git", False),
+    ("git submodule add https://github.com/user/lib.git", False),
+    ("git submodule update", False),
+    ("git submodule update --init", False),
+    ("git submodule update --init --recursive", False),
+    ("git submodule init", False),
+    ("git gc", False),
+    ("git gc --aggressive", False),
+    ("git prune", False),
+    # git - unsafe (notes mutations)
+    ("git notes add -m 'note'", False),
+    ("git notes edit", False),
+    ("git notes remove", False),
+    # git - unsafe (worktree mutations)
+    ("git worktree add ../new-worktree feature", False),
+    ("git worktree remove ../old-worktree", False),
+    ("git worktree prune", False),
+    # git - unsafe (with force flag)
+    ("git -C /tmp push --force", False),
+    #
+    # ==========================================================================
+    # Google Cloud CLI (gcloud)
+    # ==========================================================================
+    #
+    # Gcloud with global flags (values could match action names)
+    ("gcloud --project delete compute instances list", True),
+    ("gcloud --format delete compute instances list", True),
+    ("gcloud --project myproj compute instances delete foo", False),
+    # Gcloud with --flag value patterns
+    ("gcloud compute instances list", True),
+    ("gcloud compute instances list --project foo", True),
+    ("gcloud compute backend-services describe k8s-be --global --project foo", True),
+    ("gcloud iap settings get --project foo --resource-type=compute", True),
+    ("gcloud auth list", True),
+    ("gcloud compute instances delete foo", False),
+    ("gcloud compute instances delete list", False),  # deleting instance named "list"
+    ("gcloud compute instances create foo", False),
+    ("gcloud container clusters get-credentials foo", True),  # get- prefix
+    # Gcloud nested services (variable depth)
+    ("gcloud run services list", True),
+    ("gcloud run services describe myservice --region us-central1", True),
+    ("gcloud run services update myservice --region us-central1", False),
+    ("gcloud run services delete myservice", False),
+    ("gcloud compute backend-services list --project foo", True),
+    ("gcloud compute ssl-certificates describe mycert --global", True),
+    ("gcloud iap web get-iam-policy --resource-type=backend-services", True),
+    ("gcloud artifacts docker images list us-central1-docker.pkg.dev/proj/repo", True),
+    ("gcloud iam service-accounts list", True),
+    ("gcloud iam service-accounts delete sa@proj.iam.gserviceaccount.com", False),
+    ("gcloud secrets list --project foo", True),
+    ("gcloud secrets describe mysecret", True),
+    ("gcloud secrets create newsecret", False),
+    ("gcloud dns record-sets list --zone myzone", True),
+    ("gcloud functions list --project foo", True),
+    ("gcloud config get-value project", True),
+    ("gcloud config set project foo", False),
+    ("gcloud logging read 'resource.type=cloud_run_revision'", True),
+    ("gcloud storage buckets describe gs://mybucket", True),
+    ("gcloud beta run services describe myservice", True),
+    ("gcloud beta run services update myservice", False),
+    ("gcloud certificate-manager trust-configs describe myconfig", True),
+    ("gcloud network-security server-tls-policies describe mypolicy", True),
+    ("gcloud container images list-tags gcr.io/proj/image", True),
+    ("gcloud projects list", True),
+    ("gcloud projects describe myproject", True),
+    ("gcloud projects get-iam-policy myproject", True),
+    ("gcloud projects add-iam-policy-binding myproject --member=user:foo", False),
+    # Gcloud - from tldr examples (comprehensive coverage)
+    # gcloud (base) - config, auth, compute, container, components
+    ("gcloud config list", True),
+    ("gcloud config get project", True),
+    ("gcloud config get compute/zone", True),
+    ("gcloud config set project my-project", False),
+    ("gcloud config set compute/zone us-central1-a", False),
+    ("gcloud config configurations list", True),
+    ("gcloud config configurations create new-config", False),
+    ("gcloud config configurations activate new-config", False),
+    # gcloud auth (depth 1)
+    ("gcloud auth login", False),
+    ("gcloud auth activate-service-account", False),
+    ("gcloud auth application-default login", False),
+    ("gcloud auth print-access-token", False),
+    ("gcloud auth revoke", False),
+    ("gcloud auth configure-docker", False),
+    # gcloud components (depth 1)
+    ("gcloud components list", True),
+    ("gcloud components install kubectl", False),
+    ("gcloud components update", False),
+    ("gcloud components update --version=1.2.3", False),
+    ("gcloud components update --quiet", False),
+    # gcloud compute (depth 2) - instances
+    ("gcloud compute zones list", True),
+    ("gcloud compute instances create my-instance", False),
+    ("gcloud compute instances describe my-instance", True),
+    ("gcloud compute instances list --filter='status=RUNNING'", True),
+    ("gcloud compute instances delete my-instance", False),
+    ("gcloud compute instances start my-instance", False),
+    ("gcloud compute instances stop my-instance", False),
+    # gcloud compute - disks/snapshots
+    ("gcloud compute disks list", True),
+    ("gcloud compute disks describe my-disk", True),
+    ("gcloud compute disks snapshot my-disk --snapshot-names=my-snapshot", False),
+    ("gcloud compute disks create my-disk", False),
+    ("gcloud compute disks delete my-disk", False),
+    ("gcloud compute snapshots list", True),
+    ("gcloud compute snapshots describe my-snapshot", True),
+    ("gcloud compute snapshots delete my-snapshot", False),
+    # gcloud compute - ssh (depth 2)
+    ("gcloud compute ssh my-instance", False),
+    ("gcloud compute ssh user@my-instance --zone=us-central1-a", False),
+    # gcloud compute - regions/zones
+    ("gcloud compute regions list", True),
+    ("gcloud compute regions describe us-central1", True),
+    ("gcloud compute zones list", True),
+    ("gcloud compute zones describe us-central1-a", True),
+    # gcloud compute - networks
+    ("gcloud compute networks list", True),
+    ("gcloud compute networks describe my-network", True),
+    ("gcloud compute networks create my-network", False),
+    ("gcloud compute networks delete my-network", False),
+    # gcloud compute - firewall rules
+    ("gcloud compute firewall-rules list", True),
+    ("gcloud compute firewall-rules describe my-rule", True),
+    ("gcloud compute firewall-rules create my-rule --allow=tcp:22", False),
+    ("gcloud compute firewall-rules delete my-rule", False),
+    # gcloud container (depth 2) - clusters
+    ("gcloud container clusters list", True),
+    ("gcloud container clusters describe my-cluster", True),
+    ("gcloud container clusters get-credentials my-cluster", True),
+    ("gcloud container clusters create my-cluster", False),
+    ("gcloud container clusters delete my-cluster", False),
+    ("gcloud container clusters update my-cluster", False),
+    ("gcloud container clusters resize my-cluster --size=5", False),
+    # gcloud container - images
+    ("gcloud container images list", True),
+    ("gcloud container images describe gcr.io/my-project/my-image", True),
+    ("gcloud container images list-tags gcr.io/my-project/my-image", True),
+    ("gcloud container images delete gcr.io/my-project/my-image", False),
+    # gcloud container - node-pools
+    ("gcloud container node-pools list --cluster=my-cluster", True),
+    ("gcloud container node-pools describe my-pool --cluster=my-cluster", True),
+    ("gcloud container node-pools create my-pool --cluster=my-cluster", False),
+    ("gcloud container node-pools delete my-pool --cluster=my-cluster", False),
+    # gcloud iam (depth 2) - roles
+    ("gcloud iam roles list", True),
+    ("gcloud iam roles describe roles/editor", True),
+    ("gcloud iam roles create my-role --project=my-project --file=role.yaml", False),
+    ("gcloud iam roles delete my-role --project=my-project", False),
+    (
+        "gcloud iam list-grantable-roles //cloudresourcemanager.googleapis.com/projects/my-project",
+        True,
+    ),
+    # gcloud iam - service accounts
+    ("gcloud iam service-accounts list", True),
+    ("gcloud iam service-accounts describe sa@project.iam.gserviceaccount.com", True),
+    ("gcloud iam service-accounts create my-sa", False),
+    ("gcloud iam service-accounts delete sa@project.iam.gserviceaccount.com", False),
+    (
+        "gcloud iam service-accounts add-iam-policy-binding sa@project.iam.gserviceaccount.com --member=user:foo --role=roles/iam.serviceAccountUser",
+        False,
+    ),
+    (
+        "gcloud iam service-accounts set-iam-policy sa@project.iam.gserviceaccount.com policy.json",
+        False,
+    ),
+    (
+        "gcloud iam service-accounts keys list --iam-account=sa@project.iam.gserviceaccount.com",
+        True,
+    ),
+    (
+        "gcloud iam service-accounts keys create key.json --iam-account=sa@project.iam.gserviceaccount.com",
+        False,
+    ),
+    # gcloud app (depth 2 - default)
+    ("gcloud app deploy", False),
+    ("gcloud app deploy app.yaml", False),
+    ("gcloud app versions list", True),
+    ("gcloud app versions describe v1 --service=default", True),
+    ("gcloud app versions delete v1 --service=default", False),
+    ("gcloud app browse", False),  # opens browser, not read-only
+    ("gcloud app create", False),
+    ("gcloud app logs read", True),  # read is safe
+    ("gcloud app describe", True),
+    ("gcloud app services list", True),
+    ("gcloud app services describe default", True),
+    # gcloud projects (depth 1)
+    ("gcloud projects create my-new-project", False),
+    ("gcloud projects delete my-project", False),
+    ("gcloud projects undelete my-project", False),
+    # gcloud secrets (depth 1)
+    ("gcloud secrets versions list my-secret", True),
+    ("gcloud secrets versions describe 1 --secret=my-secret", True),
+    (
+        "gcloud secrets versions access 1 --secret=my-secret",
+        False,
+    ),  # accessing secret data
+    ("gcloud secrets versions destroy 1 --secret=my-secret", False),
+    (
+        "gcloud secrets add-iam-policy-binding my-secret --member=user:foo --role=roles/secretmanager.secretAccessor",
+        False,
+    ),
+    # gcloud functions (depth 1)
+    ("gcloud functions describe my-function", True),
+    ("gcloud functions logs read my-function", True),  # read is safe
+    ("gcloud functions deploy my-function", False),
+    ("gcloud functions delete my-function", False),
+    ("gcloud functions call my-function", False),
+    # gcloud logging (depth 1)
+    ("gcloud logging read 'severity>=ERROR'", True),
+    ("gcloud logging logs list", True),
+    ("gcloud logging logs list --bucket=my-bucket --location=us-central1", True),
+    ("gcloud logging logs list --filter='logName:syslog'", True),
+    ("gcloud logging logs list --limit=100", True),
+    ("gcloud logging logs list --sort-by='timestamp'", True),
+    ("gcloud logging logs list --verbosity=debug", True),
+    ("gcloud logging logs delete my-log", False),
+    ("gcloud logging write my-log 'message'", False),
+    # gcloud dns (depth 2)
+    ("gcloud dns managed-zones list", True),
+    ("gcloud dns managed-zones describe my-zone", True),
+    ("gcloud dns managed-zones create my-zone --dns-name=example.com", False),
+    ("gcloud dns managed-zones delete my-zone", False),
+    ("gcloud dns record-sets list --zone=my-zone", True),
+    ("gcloud dns record-sets describe www --zone=my-zone --type=A", True),
+    (
+        "gcloud dns record-sets create www --zone=my-zone --type=A --rrdatas=1.2.3.4",
+        False,
+    ),
+    ("gcloud dns record-sets delete www --zone=my-zone --type=A", False),
+    # gcloud storage (depth 2)
+    ("gcloud storage buckets list", True),
+    ("gcloud storage buckets describe gs://my-bucket", True),
+    ("gcloud storage buckets create gs://my-bucket", False),
+    ("gcloud storage buckets delete gs://my-bucket", False),
+    ("gcloud storage objects list gs://my-bucket", True),
+    ("gcloud storage objects describe gs://my-bucket/my-object", True),
+    ("gcloud storage cp gs://src/file gs://dst/file", False),
+    ("gcloud storage rm gs://my-bucket/my-object", False),
+    # gcloud run (depth 2)
+    ("gcloud run services list", True),
+    ("gcloud run services describe my-service --region=us-central1", True),
+    (
+        "gcloud run services update my-service --region=us-central1 --memory=512Mi",
+        False,
+    ),
+    ("gcloud run services delete my-service --region=us-central1", False),
+    ("gcloud run deploy my-service --image=gcr.io/my-project/my-image", False),
+    ("gcloud run revisions list --service=my-service", True),
+    ("gcloud run revisions describe my-revision", True),
+    # gcloud artifacts (depth 3)
+    ("gcloud artifacts repositories list", True),
+    ("gcloud artifacts repositories describe my-repo --location=us-central1", True),
+    ("gcloud artifacts repositories create my-repo --location=us-central1", False),
+    ("gcloud artifacts repositories delete my-repo --location=us-central1", False),
+    (
+        "gcloud artifacts docker images list us-central1-docker.pkg.dev/my-project/my-repo",
+        True,
+    ),
+    (
+        "gcloud artifacts docker tags list us-central1-docker.pkg.dev/my-project/my-repo/my-image",
+        True,
+    ),
+    (
+        "gcloud artifacts docker tags delete us-central1-docker.pkg.dev/my-project/my-repo/my-image:v1",
+        False,
+    ),
+    # gcloud beta (depth 3)
+    ("gcloud beta run services list", True),
+    ("gcloud beta run services describe my-service", True),
+    ("gcloud beta run services update my-service", False),
+    ("gcloud beta run services delete my-service", False),
+    ("gcloud beta compute instances list", True),
+    ("gcloud beta compute instances describe my-instance", True),
+    # gcloud certificate-manager (depth 2)
+    ("gcloud certificate-manager certificates list", True),
+    ("gcloud certificate-manager certificates describe my-cert", True),
+    ("gcloud certificate-manager certificates create my-cert", False),
+    ("gcloud certificate-manager trust-configs list", True),
+    ("gcloud certificate-manager trust-configs describe my-config", True),
+    # gcloud network-security (depth 2)
+    ("gcloud network-security server-tls-policies list", True),
+    ("gcloud network-security server-tls-policies describe my-policy", True),
+    ("gcloud network-security server-tls-policies create my-policy", False),
+    ("gcloud network-security gateway-security-policies list", True),
+    ("gcloud network-security gateway-security-policies describe my-policy", True),
+    # gcloud iap (depth 2)
+    ("gcloud iap settings get --project=my-project", True),
+    ("gcloud iap settings set iap-settings.yaml --project=my-project", False),
+    (
+        "gcloud iap web get-iam-policy --resource-type=backend-services --service=my-service",
+        True,
+    ),
+    (
+        "gcloud iap web set-iam-policy policy.json --resource-type=backend-services",
+        False,
+    ),
+    ("gcloud iap tcp tunnels list", True),
+    # gcloud sql (depth 2 - default)
+    ("gcloud sql instances list", True),
+    ("gcloud sql instances describe my-instance", True),
+    ("gcloud sql instances create my-instance", False),
+    ("gcloud sql instances delete my-instance", False),
+    ("gcloud sql databases list --instance=my-instance", True),
+    ("gcloud sql databases describe my-db --instance=my-instance", True),
+    ("gcloud sql databases create my-db --instance=my-instance", False),
+    ("gcloud sql backups list --instance=my-instance", True),
+    ("gcloud sql backups describe 12345 --instance=my-instance", True),
+    ("gcloud sql backups create --instance=my-instance", False),
+    ("gcloud sql export sql my-instance gs://my-bucket/dump.sql", False),
+    ("gcloud sql export sql my-instance gs://my-bucket/dump.sql --async", False),
+    (
+        "gcloud sql export sql my-instance gs://my-bucket/dump.sql --database=mydb",
+        False,
+    ),
+    ("gcloud sql import sql my-instance gs://my-bucket/dump.sql", False),
+    # gcloud kms (depth 2 - default)
+    ("gcloud kms keyrings list --location=global", True),
+    ("gcloud kms keyrings describe my-keyring --location=global", True),
+    ("gcloud kms keyrings create my-keyring --location=global", False),
+    ("gcloud kms keys list --keyring=my-keyring --location=global", True),
+    ("gcloud kms keys describe my-key --keyring=my-keyring --location=global", True),
+    (
+        "gcloud kms keys create my-key --keyring=my-keyring --location=global --purpose=encryption",
+        False,
+    ),
+    (
+        "gcloud kms decrypt --key=my-key --keyring=my-keyring --location=global --ciphertext-file=cipher.enc --plaintext-file=plain.txt",
+        False,
+    ),
+    (
+        "gcloud kms encrypt --key=my-key --keyring=my-keyring --location=global --plaintext-file=plain.txt --ciphertext-file=cipher.enc",
+        False,
+    ),
+    # gcloud pubsub (depth 2 - default)
+    ("gcloud pubsub topics list", True),
+    ("gcloud pubsub topics describe my-topic", True),
+    ("gcloud pubsub topics create my-topic", False),
+    ("gcloud pubsub topics delete my-topic", False),
+    ("gcloud pubsub topics publish my-topic --message='hello'", False),
+    ("gcloud pubsub subscriptions list", True),
+    ("gcloud pubsub subscriptions describe my-sub", True),
+    ("gcloud pubsub subscriptions create my-sub --topic=my-topic", False),
+    ("gcloud pubsub subscriptions pull my-sub", False),
+    # gcloud with global flags
+    ("gcloud --project=my-project compute instances list", True),
+    ("gcloud --format=json compute instances list", True),
+    ("gcloud --account=user@example.com compute instances list", True),
+    ("gcloud --configuration=my-config compute instances list", True),
+    ("gcloud --region=us-central1 compute instances list", True),
+    ("gcloud --zone=us-central1-a compute instances list", True),
+    (
+        "gcloud --project=my-project --format=json compute instances describe my-instance",
+        True,
+    ),
+    ("gcloud --project=my-project compute instances delete my-instance", False),
+    # gcloud help/info/version/init
+    ("gcloud help", True),
+    ("gcloud help compute", True),
+    ("gcloud help compute instances", True),
+    ("gcloud info", True),
+    ("gcloud info --run-diagnostics", True),
+    ("gcloud info --show-log", True),
+    ("gcloud version", True),
+    ("gcloud version --help", True),
+    ("gcloud init", False),
+    ("gcloud init --skip-diagnostics", False),
+    ("gcloud feedback", False),
+    ("gcloud topic configurations", True),  # help topic
+    # gcloud - edge cases
+    ("gcloud compute instances", False),  # incomplete - no action
+    ("gcloud compute", False),  # incomplete - no resource or action
+    ("gcloud", False),  # incomplete - no command at all
+    #
+    # ==========================================================================
+    # Azure CLI (az)
+    # ==========================================================================
+    #
+    # Az with global flags (values could match action names)
+    ("az --subscription delete vm list", True),
+    ("az --query delete vm show", True),
+    ("az -o delete vm list", True),
+    ("az --subscription mysub vm delete foo", False),
+    # Az with positional args before flags
+    ("az vm list --resource-group mygroup", True),
+    ("az vm show myvm --resource-group mygroup", True),
+    ("az storage account list", True),
+    ("az keyvault secret show --name mysecret --vault-name myvault", True),
+    ("az vm delete myvm --resource-group mygroup", False),
+    ("az vm delete list", False),  # deleting vm named "list"
+    ("az vm create myvm --resource-group mygroup", False),
+    ("az vm start myvm", False),
+    # Az nested services (variable depth)
+    ("az boards work-item show --id 12345", True),
+    ("az boards work-item list --project myproj", True),
+    ("az boards work-item create --type Bug", False),
+    ("az boards work-item update --id 12345", False),
+    ("az boards query --wiql 'SELECT [System.Id] FROM WorkItems'", True),
+    ("az boards iteration team list --team MyTeam", True),
+    ("az deployment group show --resource-group rg --name main", True),
+    ("az deployment group list --resource-group rg", True),
+    ("az deployment group create --resource-group rg --template-file t.bicep", False),
+    ("az deployment operation group list --resource-group rg --name main", True),
+    ("az devops team list --project myproj", True),
+    ("az devops team list-member --team MyTeam", True),
+    ("az cognitiveservices model list --location eastus", True),
+    ("az cognitiveservices account list", True),
+    ("az cognitiveservices account show --name myaccount --resource-group rg", True),
+    (
+        "az cognitiveservices account deployment list --name myaccount --resource-group rg",
+        True,
+    ),
+    (
+        "az cognitiveservices account deployment show --name myaccount --resource-group rg --deployment-name dep",
+        True,
+    ),
+    (
+        "az cognitiveservices account deployment create --name myaccount --resource-group rg",
+        False,
+    ),
+    (
+        "az cognitiveservices account deployment delete --name myaccount --resource-group rg",
+        False,
+    ),
+    ("az cognitiveservices account create --name foo", False),
+    ("az containerapp show --name myapp --resource-group rg", True),
+    ("az containerapp list --resource-group rg", True),
+    ("az containerapp revision list --name myapp --resource-group rg", True),
+    ("az containerapp logs show --name myapp --resource-group rg --type console", True),
+    ("az containerapp delete --name myapp --resource-group rg", False),
+    ("az acr repository list --name myacr", True),
+    ("az acr repository show-tags --name myacr --repository myrepo", True),
+    ("az acr repository delete --name myacr --repository myrepo", False),
+    ("az monitor log-analytics query --workspace ws --analytics-query q", True),
+    ("az monitor activity-log list", True),
+    ("az resource list --resource-group rg", True),
+    ("az resource show --ids /subscriptions/.../resource", True),
+    ("az resource delete --ids /subscriptions/.../resource", False),
+    # Az role (RBAC)
+    ("az role assignment list", True),
+    ("az role assignment list --assignee user@example.com", True),
+    ("az role definition list", True),
+    ("az role assignment create --assignee user@example.com --role Reader", False),
+    ("az role assignment delete --assignee user@example.com --role Reader", False),
+    # Az ML (Machine Learning)
+    ("az ml workspace list", True),
+    ("az ml workspace show --name myws --resource-group rg", True),
+    ("az ml model list --workspace-name myws --resource-group rg", True),
+    ("az ml endpoint list --workspace-name myws --resource-group rg", True),
+    ("az ml workspace create --name myws --resource-group rg", False),
+    ("az ml workspace delete --name myws --resource-group rg", False),
+    ("az ml model delete --name mymodel --workspace-name myws", False),
+    # Az - comprehensive coverage from tldr
+    # az account - subscription management
+    ("az account list", True),
+    ("az account list --all", True),
+    ("az account list --output table", True),
+    ("az account show", True),
+    ("az account show --output json", True),
+    ("az account list-locations", True),
+    ("az account get-access-token", True),
+    ("az account get-access-token --resource-type ms-graph", True),
+    ("az account set --subscription mysub", False),
+    ("az account clear", False),
+    # az login/logout
+    ("az login", False),
+    ("az login --use-device-code", False),
+    (
+        "az login --service-principal --username id --password secret --tenant tenant",
+        False,
+    ),
+    ("az logout", False),
+    # az group - resource groups
+    ("az group list", True),
+    ("az group list --output table", True),
+    ("az group show --name mygroup", True),
+    ("az group exists --name mygroup", True),
+    ("az group create --name newgroup --location eastus", False),
+    ("az group delete --name mygroup", False),
+    ("az group delete --name mygroup --yes", False),
+    ("az group update --name mygroup --tags env=prod", False),
+    ("az group wait --name mygroup --created", False),
+    # az vm - virtual machines
+    ("az vm list", True),
+    ("az vm list --output table", True),
+    ("az vm list --resource-group mygroup", True),
+    ("az vm show --name myvm --resource-group mygroup", True),
+    ("az vm show --name myvm -g mygroup --output json", True),
+    ("az vm list-sizes --location eastus", True),
+    ("az vm list-skus --location eastus", True),
+    ("az vm list-ip-addresses --name myvm -g mygroup", True),
+    ("az vm get-instance-view --name myvm -g mygroup", True),
+    ("az vm image list", True),
+    ("az vm image list --all", True),
+    ("az vm image list --publisher Canonical", True),
+    ("az vm image list-offers --publisher Canonical --location eastus", True),
+    (
+        "az vm image list-skus --publisher Canonical --offer UbuntuServer --location eastus",
+        True,
+    ),
+    ("az vm image show --urn Canonical:UbuntuServer:18.04-LTS:latest", True),
+    (
+        "az vm create --name newvm -g mygroup --image UbuntuLTS --admin-user azureuser --generate-ssh-keys",
+        False,
+    ),
+    ("az vm delete --name myvm -g mygroup", False),
+    ("az vm delete --name myvm -g mygroup --yes", False),
+    ("az vm start --name myvm -g mygroup", False),
+    ("az vm stop --name myvm -g mygroup", False),
+    ("az vm restart --name myvm -g mygroup", False),
+    ("az vm deallocate --name myvm -g mygroup", False),
+    ("az vm redeploy --name myvm -g mygroup", False),
+    ("az vm resize --name myvm -g mygroup --size Standard_DS3_v2", False),
+    ("az vm update --name myvm -g mygroup --set tags.env=prod", False),
+    ("az vm capture --name myvm -g mygroup --vhd-name-prefix myimage", False),
+    ("az vm generalize --name myvm -g mygroup", False),
+    ("az vm open-port --name myvm -g mygroup --port 80", False),
+    (
+        "az vm run-command invoke --name myvm -g mygroup --command-id RunShellScript --scripts 'ls -la'",
+        False,
+    ),
+    # az disk - managed disks
+    ("az disk list", True),
+    ("az disk list --resource-group mygroup", True),
+    ("az disk show --name mydisk -g mygroup", True),
+    ("az disk list --query '[].{Name:name, Size:diskSizeGb}'", True),
+    ("az disk create --name newdisk -g mygroup --size-gb 128", False),
+    ("az disk delete --name mydisk -g mygroup", False),
+    ("az disk delete --name mydisk -g mygroup --yes", False),
+    ("az disk update --name mydisk -g mygroup --size-gb 256", False),
+    (
+        "az disk grant-access --name mydisk -g mygroup --access-level Read --duration-in-seconds 3600",
+        False,
+    ),
+    ("az disk revoke-access --name mydisk -g mygroup", False),
+    # az snapshot
+    ("az snapshot list", True),
+    ("az snapshot list --resource-group mygroup", True),
+    ("az snapshot show --name mysnap -g mygroup", True),
+    ("az snapshot create --name newsnap -g mygroup --source mydisk", False),
+    ("az snapshot delete --name mysnap -g mygroup", False),
+    # az aks - Azure Kubernetes Service
+    ("az aks list", True),
+    ("az aks list --output table", True),
+    ("az aks list --resource-group mygroup", True),
+    ("az aks show --name mycluster -g mygroup", True),
+    ("az aks show --name mycluster -g mygroup --output json", True),
+    ("az aks get-versions --location eastus", True),
+    (
+        "az aks get-credentials --name mycluster -g mygroup",
+        False,
+    ),  # modifies kubeconfig
+    ("az aks get-credentials --name mycluster -g mygroup --overwrite-existing", False),
+    ("az aks get-upgrades --name mycluster -g mygroup", True),
+    ("az aks nodepool list --cluster-name mycluster -g mygroup", True),
+    ("az aks nodepool show --cluster-name mycluster --name nodepool1 -g mygroup", True),
+    (
+        "az aks create --name newcluster -g mygroup --node-count 3 --node-vm-size Standard_DS2_v2",
+        False,
+    ),
+    ("az aks delete --name mycluster -g mygroup", False),
+    ("az aks delete --name mycluster -g mygroup --yes", False),
+    ("az aks upgrade --name mycluster -g mygroup --kubernetes-version 1.27.0", False),
+    ("az aks scale --name mycluster -g mygroup --node-count 5", False),
+    (
+        "az aks update --name mycluster -g mygroup --enable-cluster-autoscaler --min-count 1 --max-count 10",
+        False,
+    ),
+    (
+        "az aks nodepool add --cluster-name mycluster --name nodepool2 -g mygroup --node-count 2",
+        False,
+    ),
+    (
+        "az aks nodepool delete --cluster-name mycluster --name nodepool2 -g mygroup",
+        False,
+    ),
+    (
+        "az aks nodepool upgrade --cluster-name mycluster --name nodepool1 -g mygroup --kubernetes-version 1.27.0",
+        False,
+    ),
+    ("az aks start --name mycluster -g mygroup", False),
+    ("az aks stop --name mycluster -g mygroup", False),
+    # az acr - Azure Container Registry
+    ("az acr list", True),
+    ("az acr list --resource-group mygroup", True),
+    ("az acr show --name myacr", True),
+    ("az acr show --name myacr --output json", True),
+    ("az acr show-usage --name myacr", True),
+    ("az acr repository list --name myacr", True),
+    ("az acr repository list --name myacr --output table", True),
+    ("az acr repository show --name myacr --repository myrepo", True),
+    ("az acr repository show-tags --name myacr --repository myrepo", True),
+    (
+        "az acr repository show-tags --name myacr --repository myrepo --orderby time_desc",
+        True,
+    ),
+    ("az acr repository show-manifests --name myacr --repository myrepo", True),
+    ("az acr credential show --name myacr", True),
+    ("az acr check-health --name myacr", True),
+    ("az acr create --name newacr -g mygroup --sku Basic", False),
+    ("az acr delete --name myacr", False),
+    ("az acr delete --name myacr --yes", False),
+    ("az acr update --name myacr --admin-enabled true", False),
+    ("az acr login --name myacr", False),
+    ("az acr repository delete --name myacr --repository myrepo", False),
+    ("az acr repository delete --name myacr --image myrepo:v1", False),
+    (
+        "az acr import --name myacr --source docker.io/library/nginx:latest --image nginx:latest",
+        False,
+    ),
+    ("az acr build --registry myacr --image myimage:v1 .", False),
+    # az storage - storage accounts
+    ("az storage account list", True),
+    ("az storage account list --resource-group mygroup", True),
+    ("az storage account show --name myaccount -g mygroup", True),
+    ("az storage account show-connection-string --name myaccount -g mygroup", True),
+    ("az storage account keys list --account-name myaccount -g mygroup", True),
+    ("az storage account show-usage --location eastus", True),
+    (
+        "az storage account create --name newaccount -g mygroup --location eastus --sku Standard_LRS",
+        False,
+    ),
+    ("az storage account delete --name myaccount -g mygroup", False),
+    ("az storage account delete --name myaccount -g mygroup --yes", False),
+    (
+        "az storage account update --name myaccount -g mygroup --min-tls-version TLS1_2",
+        False,
+    ),
+    (
+        "az storage account keys renew --account-name myaccount -g mygroup --key primary",
+        False,
+    ),
+    # az storage container
+    ("az storage container list --account-name myaccount", True),
+    ("az storage container list --account-name myaccount --auth-mode login", True),
+    ("az storage container show --name mycontainer --account-name myaccount", True),
+    (
+        "az storage container show-permission --name mycontainer --account-name myaccount",
+        True,
+    ),
+    ("az storage container create --name newcontainer --account-name myaccount", False),
+    ("az storage container delete --name mycontainer --account-name myaccount", False),
+    (
+        "az storage container set-permission --name mycontainer --account-name myaccount --public-access blob",
+        False,
+    ),
+    # az storage blob
+    (
+        "az storage blob list --container-name mycontainer --account-name myaccount",
+        True,
+    ),
+    (
+        "az storage blob list --container-name mycontainer --account-name myaccount --prefix prefix/",
+        True,
+    ),
+    (
+        "az storage blob show --name myblob --container-name mycontainer --account-name myaccount",
+        True,
+    ),
+    (
+        "az storage blob exists --name myblob --container-name mycontainer --account-name myaccount",
+        True,
+    ),
+    (
+        "az storage blob url --name myblob --container-name mycontainer --account-name myaccount",
+        True,
+    ),
+    (
+        "az storage blob metadata show --name myblob --container-name mycontainer --account-name myaccount",
+        True,
+    ),
+    (
+        "az storage blob download --name myblob --container-name mycontainer --account-name myaccount --file localfile",
+        True,
+    ),
+    (
+        "az storage blob download-batch --source mycontainer --destination ./local --account-name myaccount",
+        True,
+    ),
+    (
+        "az storage blob upload --name myblob --container-name mycontainer --account-name myaccount --file localfile",
+        False,
+    ),
+    (
+        "az storage blob upload-batch --source ./local --destination mycontainer --account-name myaccount",
+        False,
+    ),
+    (
+        "az storage blob delete --name myblob --container-name mycontainer --account-name myaccount",
+        False,
+    ),
+    (
+        "az storage blob delete-batch --source mycontainer --account-name myaccount --pattern '*.log'",
+        False,
+    ),
+    (
+        "az storage blob copy start --source-uri https://src.blob.core.windows.net/c/b --destination-blob b --destination-container c --account-name myaccount",
+        False,
+    ),
+    (
+        "az storage blob generate-sas --name myblob --container-name mycontainer --account-name myaccount --permissions r --expiry 2024-12-31",
+        False,
+    ),
+    # az network - networking
+    ("az network vnet list", True),
+    ("az network vnet list --resource-group mygroup", True),
+    ("az network vnet show --name myvnet -g mygroup", True),
+    ("az network vnet subnet list --vnet-name myvnet -g mygroup", True),
+    ("az network vnet subnet show --name mysubnet --vnet-name myvnet -g mygroup", True),
+    ("az network nic list", True),
+    ("az network nic list --resource-group mygroup", True),
+    ("az network nic show --name mynic -g mygroup", True),
+    ("az network nic ip-config list --nic-name mynic -g mygroup", True),
+    ("az network nsg list", True),
+    ("az network nsg list --resource-group mygroup", True),
+    ("az network nsg show --name mynsg -g mygroup", True),
+    ("az network nsg rule list --nsg-name mynsg -g mygroup", True),
+    ("az network nsg rule show --name myrule --nsg-name mynsg -g mygroup", True),
+    ("az network public-ip list", True),
+    ("az network public-ip list --resource-group mygroup", True),
+    ("az network public-ip show --name mypip -g mygroup", True),
+    ("az network lb list", True),
+    ("az network lb show --name mylb -g mygroup", True),
+    ("az network application-gateway list", True),
+    ("az network application-gateway show --name myag -g mygroup", True),
+    ("az network dns zone list", True),
+    ("az network dns zone show --name mydomain.com -g mygroup", True),
+    ("az network dns record-set list --zone-name mydomain.com -g mygroup", True),
+    ("az network dns record-set a list --zone-name mydomain.com -g mygroup", True),
+    ("az network private-dns zone list", True),
+    ("az network private-dns zone show --name myprivatedns -g mygroup", True),
+    ("az network list-usages --location eastus", True),
+    (
+        "az network vnet create --name newvnet -g mygroup --address-prefix 10.0.0.0/16 --subnet-name default --subnet-prefix 10.0.0.0/24",
+        False,
+    ),
+    ("az network vnet delete --name myvnet -g mygroup", False),
+    (
+        "az network vnet update --name myvnet -g mygroup --address-prefixes 10.0.0.0/16 10.1.0.0/16",
+        False,
+    ),
+    (
+        "az network vnet subnet create --name newsubnet --vnet-name myvnet -g mygroup --address-prefix 10.0.1.0/24",
+        False,
+    ),
+    (
+        "az network vnet subnet delete --name mysubnet --vnet-name myvnet -g mygroup",
+        False,
+    ),
+    (
+        "az network nic create --name newnic -g mygroup --vnet-name myvnet --subnet mysubnet",
+        False,
+    ),
+    ("az network nic delete --name mynic -g mygroup", False),
+    (
+        "az network nic update --name mynic -g mygroup --accelerated-networking true",
+        False,
+    ),
+    ("az network nsg create --name newnsg -g mygroup", False),
+    ("az network nsg delete --name mynsg -g mygroup", False),
+    (
+        "az network nsg rule create --name newrule --nsg-name mynsg -g mygroup --priority 100 --access Allow --protocol Tcp --destination-port-ranges 22",
+        False,
+    ),
+    ("az network nsg rule delete --name myrule --nsg-name mynsg -g mygroup", False),
+    (
+        "az network public-ip create --name newpip -g mygroup --allocation-method Static --sku Standard",
+        False,
+    ),
+    ("az network public-ip delete --name mypip -g mygroup", False),
+    (
+        "az network dns record-set a add-record --zone-name mydomain.com -g mygroup --record-set-name www --ipv4-address 1.2.3.4",
+        False,
+    ),
+    (
+        "az network dns record-set a remove-record --zone-name mydomain.com -g mygroup --record-set-name www --ipv4-address 1.2.3.4",
+        False,
+    ),
+    # az webapp - web apps
+    ("az webapp list", True),
+    ("az webapp list --resource-group mygroup", True),
+    ("az webapp show --name myapp -g mygroup", True),
+    ("az webapp list-runtimes", True),
+    ("az webapp list-runtimes --os-type linux", True),
+    ("az webapp log show --name myapp -g mygroup", True),
+    ("az webapp log tail --name myapp -g mygroup", True),
+    ("az webapp config show --name myapp -g mygroup", True),
+    ("az webapp config appsettings list --name myapp -g mygroup", True),
+    ("az webapp config connection-string list --name myapp -g mygroup", True),
+    ("az webapp deployment list-publishing-profiles --name myapp -g mygroup", True),
+    ("az webapp deployment list-publishing-credentials --name myapp -g mygroup", True),
+    ("az webapp deployment source show --name myapp -g mygroup", True),
+    (
+        "az webapp create --name newapp -g mygroup --plan myplan --runtime 'NODE:18-lts'",
+        False,
+    ),
+    ("az webapp delete --name myapp -g mygroup", False),
+    ("az webapp up --name myapp -g mygroup --runtime 'PYTHON:3.9'", False),
+    ("az webapp start --name myapp -g mygroup", False),
+    ("az webapp stop --name myapp -g mygroup", False),
+    ("az webapp restart --name myapp -g mygroup", False),
+    (
+        "az webapp config appsettings set --name myapp -g mygroup --settings KEY=VALUE",
+        False,
+    ),
+    (
+        "az webapp config appsettings delete --name myapp -g mygroup --setting-names KEY",
+        False,
+    ),
+    (
+        "az webapp config set --name myapp -g mygroup --linux-fx-version 'PYTHON|3.9'",
+        False,
+    ),
+    (
+        "az webapp deployment source config-zip --name myapp -g mygroup --src app.zip",
+        False,
+    ),
+    # az functionapp - Azure Functions
+    ("az functionapp list", True),
+    ("az functionapp list --resource-group mygroup", True),
+    ("az functionapp show --name myfunc -g mygroup", True),
+    ("az functionapp config show --name myfunc -g mygroup", True),
+    ("az functionapp config appsettings list --name myfunc -g mygroup", True),
+    ("az functionapp function list --name myfunc -g mygroup", True),
+    (
+        "az functionapp function show --name myfunc --function-name myfunction -g mygroup",
+        True,
+    ),
+    ("az functionapp keys list --name myfunc -g mygroup", True),
+    (
+        "az functionapp deployment list-publishing-profiles --name myfunc -g mygroup",
+        True,
+    ),
+    (
+        "az functionapp create --name newfunc -g mygroup --storage-account myaccount --runtime python --runtime-version 3.9 --functions-version 4 --consumption-plan-location eastus",
+        False,
+    ),
+    ("az functionapp delete --name myfunc -g mygroup", False),
+    ("az functionapp start --name myfunc -g mygroup", False),
+    ("az functionapp stop --name myfunc -g mygroup", False),
+    ("az functionapp restart --name myfunc -g mygroup", False),
+    (
+        "az functionapp config appsettings set --name myfunc -g mygroup --settings KEY=VALUE",
+        False,
+    ),
+    (
+        "az functionapp deployment source config-zip --name myfunc -g mygroup --src func.zip",
+        False,
+    ),
+    # az keyvault - Key Vault
+    ("az keyvault list", True),
+    ("az keyvault list --resource-group mygroup", True),
+    ("az keyvault show --name myvault", True),
+    ("az keyvault secret list --vault-name myvault", True),
+    ("az keyvault secret show --name mysecret --vault-name myvault", True),
+    ("az keyvault key list --vault-name myvault", True),
+    ("az keyvault key show --name mykey --vault-name myvault", True),
+    ("az keyvault certificate list --vault-name myvault", True),
+    ("az keyvault certificate show --name mycert --vault-name myvault", True),
+    ("az keyvault secret get-versions --name mysecret --vault-name myvault", True),
+    ("az keyvault key get-versions --name mykey --vault-name myvault", True),
+    ("az keyvault create --name newvault -g mygroup --location eastus", False),
+    ("az keyvault delete --name myvault", False),
+    ("az keyvault purge --name myvault", False),
+    ("az keyvault recover --name myvault", False),
+    (
+        "az keyvault secret set --name newsecret --vault-name myvault --value 'mysecretvalue'",
+        False,
+    ),
+    ("az keyvault secret delete --name mysecret --vault-name myvault", False),
+    ("az keyvault secret purge --name mysecret --vault-name myvault", False),
+    ("az keyvault key create --name newkey --vault-name myvault", False),
+    ("az keyvault key delete --name mykey --vault-name myvault", False),
+    (
+        "az keyvault certificate create --name newcert --vault-name myvault --policy @policy.json",
+        False,
+    ),
+    ("az keyvault certificate delete --name mycert --vault-name myvault", False),
+    (
+        "az keyvault set-policy --name myvault --object-id objid --secret-permissions get list",
+        False,
+    ),
+    # az sql - Azure SQL
+    ("az sql server list", True),
+    ("az sql server list --resource-group mygroup", True),
+    ("az sql server show --name myserver -g mygroup", True),
+    ("az sql db list --server myserver -g mygroup", True),
+    ("az sql db show --name mydb --server myserver -g mygroup", True),
+    (
+        "az sql db show-connection-string --name mydb --server myserver --client sqlcmd",
+        True,
+    ),
+    ("az sql db list-editions --location eastus", True),
+    ("az sql elastic-pool list --server myserver -g mygroup", True),
+    ("az sql elastic-pool show --name mypool --server myserver -g mygroup", True),
+    ("az sql failover-group list --server myserver -g mygroup", True),
+    ("az sql server firewall-rule list --server myserver -g mygroup", True),
+    (
+        "az sql server firewall-rule show --name myrule --server myserver -g mygroup",
+        True,
+    ),
+    (
+        "az sql server create --name newserver -g mygroup --admin-user myadmin --admin-password mypassword",
+        False,
+    ),
+    ("az sql server delete --name myserver -g mygroup", False),
+    ("az sql db create --name newdb --server myserver -g mygroup", False),
+    ("az sql db delete --name mydb --server myserver -g mygroup", False),
+    (
+        "az sql db update --name mydb --server myserver -g mygroup --max-size 250GB",
+        False,
+    ),
+    (
+        "az sql db copy --name mydb --server myserver -g mygroup --dest-name copydb",
+        False,
+    ),
+    (
+        "az sql db restore --name mydb --server myserver -g mygroup --dest-name restoreddb --time 2023-12-01T00:00:00Z",
+        False,
+    ),
+    (
+        "az sql server firewall-rule create --name myrule --server myserver -g mygroup --start-ip-address 1.2.3.4 --end-ip-address 1.2.3.4",
+        False,
+    ),
+    (
+        "az sql server firewall-rule delete --name myrule --server myserver -g mygroup",
+        False,
+    ),
+    # az cosmosdb - Cosmos DB
+    ("az cosmosdb list", True),
+    ("az cosmosdb list --resource-group mygroup", True),
+    ("az cosmosdb show --name myaccount -g mygroup", True),
+    ("az cosmosdb keys list --name myaccount -g mygroup", True),
+    ("az cosmosdb sql database list --account-name myaccount -g mygroup", True),
+    (
+        "az cosmosdb sql database show --name mydb --account-name myaccount -g mygroup",
+        True,
+    ),
+    (
+        "az cosmosdb sql container list --database-name mydb --account-name myaccount -g mygroup",
+        True,
+    ),
+    (
+        "az cosmosdb sql container show --name mycontainer --database-name mydb --account-name myaccount -g mygroup",
+        True,
+    ),
+    ("az cosmosdb mongodb database list --account-name myaccount -g mygroup", True),
+    (
+        "az cosmosdb create --name newaccount -g mygroup --locations regionName=eastus",
+        False,
+    ),
+    ("az cosmosdb delete --name myaccount -g mygroup", False),
+    (
+        "az cosmosdb update --name myaccount -g mygroup --default-consistency-level Session",
+        False,
+    ),
+    (
+        "az cosmosdb sql database create --name newdb --account-name myaccount -g mygroup",
+        False,
+    ),
+    (
+        "az cosmosdb sql database delete --name mydb --account-name myaccount -g mygroup",
+        False,
+    ),
+    (
+        "az cosmosdb sql container create --name newcontainer --database-name mydb --account-name myaccount -g mygroup --partition-key-path /id",
+        False,
+    ),
+    (
+        "az cosmosdb keys regenerate --name myaccount -g mygroup --key-kind primary",
+        False,
+    ),
+    # az servicebus - Service Bus
+    ("az servicebus namespace list", True),
+    ("az servicebus namespace list --resource-group mygroup", True),
+    ("az servicebus namespace show --name mynamespace -g mygroup", True),
+    (
+        "az servicebus namespace authorization-rule list --namespace-name mynamespace -g mygroup",
+        True,
+    ),
+    (
+        "az servicebus namespace authorization-rule keys list --name RootManageSharedAccessKey --namespace-name mynamespace -g mygroup",
+        True,
+    ),
+    ("az servicebus queue list --namespace-name mynamespace -g mygroup", True),
+    (
+        "az servicebus queue show --name myqueue --namespace-name mynamespace -g mygroup",
+        True,
+    ),
+    ("az servicebus topic list --namespace-name mynamespace -g mygroup", True),
+    (
+        "az servicebus topic show --name mytopic --namespace-name mynamespace -g mygroup",
+        True,
+    ),
+    (
+        "az servicebus topic subscription list --topic-name mytopic --namespace-name mynamespace -g mygroup",
+        True,
+    ),
+    (
+        "az servicebus namespace create --name newnamesapce -g mygroup --location eastus",
+        False,
+    ),
+    ("az servicebus namespace delete --name mynamespace -g mygroup", False),
+    (
+        "az servicebus queue create --name newqueue --namespace-name mynamespace -g mygroup",
+        False,
+    ),
+    (
+        "az servicebus queue delete --name myqueue --namespace-name mynamespace -g mygroup",
+        False,
+    ),
+    (
+        "az servicebus topic create --name newtopic --namespace-name mynamespace -g mygroup",
+        False,
+    ),
+    (
+        "az servicebus topic delete --name mytopic --namespace-name mynamespace -g mygroup",
+        False,
+    ),
+    # az eventhubs - Event Hubs
+    ("az eventhubs namespace list", True),
+    ("az eventhubs namespace list --resource-group mygroup", True),
+    ("az eventhubs namespace show --name mynamespace -g mygroup", True),
+    ("az eventhubs eventhub list --namespace-name mynamespace -g mygroup", True),
+    (
+        "az eventhubs eventhub show --name myeventhub --namespace-name mynamespace -g mygroup",
+        True,
+    ),
+    (
+        "az eventhubs eventhub consumer-group list --eventhub-name myeventhub --namespace-name mynamespace -g mygroup",
+        True,
+    ),
+    (
+        "az eventhubs namespace create --name newnamesapce -g mygroup --location eastus",
+        False,
+    ),
+    ("az eventhubs namespace delete --name mynamespace -g mygroup", False),
+    (
+        "az eventhubs eventhub create --name neweventhub --namespace-name mynamespace -g mygroup",
+        False,
+    ),
+    (
+        "az eventhubs eventhub delete --name myeventhub --namespace-name mynamespace -g mygroup",
+        False,
+    ),
+    # az redis - Redis Cache
+    ("az redis list", True),
+    ("az redis list --resource-group mygroup", True),
+    ("az redis show --name myredis -g mygroup", True),
+    ("az redis list-keys --name myredis -g mygroup", True),
+    (
+        "az redis create --name newredis -g mygroup --location eastus --sku Basic --vm-size c0",
+        False,
+    ),
+    ("az redis delete --name myredis -g mygroup", False),
+    (
+        "az redis update --name myredis -g mygroup --set redisConfiguration.maxmemory-policy=allkeys-lru",
+        False,
+    ),
+    ("az redis regenerate-keys --name myredis -g mygroup --key-type Primary", False),
+    # az appservice - App Service plans
+    ("az appservice plan list", True),
+    ("az appservice plan list --resource-group mygroup", True),
+    ("az appservice plan show --name myplan -g mygroup", True),
+    ("az appservice plan create --name newplan -g mygroup --sku B1", False),
+    ("az appservice plan delete --name myplan -g mygroup", False),
+    ("az appservice plan update --name myplan -g mygroup --sku S1", False),
+    # az resource - generic resources
+    ("az resource list", True),
+    ("az resource list --resource-group mygroup", True),
+    ("az resource list --resource-type Microsoft.Compute/virtualMachines", True),
+    (
+        "az resource show --ids /subscriptions/.../resourceGroups/.../providers/.../resource",
+        True,
+    ),
+    (
+        "az resource show --name myresource -g mygroup --resource-type Microsoft.Web/sites",
+        True,
+    ),
+    (
+        "az resource create --id /subscriptions/.../resourceGroups/.../providers/... --properties '{}'",
+        False,
+    ),
+    (
+        "az resource delete --ids /subscriptions/.../resourceGroups/.../providers/.../resource",
+        False,
+    ),
+    ("az resource update --ids /subscriptions/.../... --set properties.foo=bar", False),
+    (
+        "az resource move --ids /subscriptions/.../... --destination-group newgroup",
+        False,
+    ),
+    # az tag - resource tags
+    ("az tag list", True),
+    ("az tag list --resource-id /subscriptions/...", True),
+    ("az tag create --name mytag", False),
+    ("az tag delete --name mytag", False),
+    (
+        "az tag update --resource-id /subscriptions/... --operation merge --tags env=prod",
+        False,
+    ),
+    # az policy - Azure Policy
+    ("az policy definition list", True),
+    ("az policy definition show --name mypolicy", True),
+    ("az policy assignment list", True),
+    ("az policy assignment list --resource-group mygroup", True),
+    ("az policy assignment show --name myassignment", True),
+    ("az policy state list --resource-group mygroup", True),
+    ("az policy state summarize --resource-group mygroup", True),
+    ("az policy definition create --name newpolicy --rules @rules.json", False),
+    ("az policy definition delete --name mypolicy", False),
+    ("az policy assignment create --name newassignment --policy mypolicy", False),
+    ("az policy assignment delete --name myassignment", False),
+    # az monitor - monitoring
+    ("az monitor metrics list --resource /subscriptions/.../...", True),
+    ("az monitor metrics list-definitions --resource /subscriptions/.../...", True),
+    ("az monitor activity-log list", True),
+    ("az monitor activity-log list --resource-group mygroup", True),
+    (
+        "az monitor activity-log list --start-time 2023-01-01 --end-time 2023-01-31",
+        True,
+    ),
+    ("az monitor log-analytics workspace list", True),
+    (
+        "az monitor log-analytics workspace show --workspace-name myworkspace -g mygroup",
+        True,
+    ),
+    (
+        "az monitor log-analytics query --workspace myworkspace --analytics-query 'AzureActivity | take 10'",
+        True,
+    ),
+    ("az monitor diagnostic-settings list --resource /subscriptions/.../...", True),
+    (
+        "az monitor diagnostic-settings show --name mydiag --resource /subscriptions/.../...",
+        True,
+    ),
+    ("az monitor alert list --resource-group mygroup", True),
+    ("az monitor action-group list --resource-group mygroup", True),
+    (
+        "az monitor log-analytics workspace create --workspace-name newworkspace -g mygroup",
+        False,
+    ),
+    (
+        "az monitor log-analytics workspace delete --workspace-name myworkspace -g mygroup",
+        False,
+    ),
+    (
+        "az monitor diagnostic-settings create --name newdiag --resource /subscriptions/.../... --logs '[]' --metrics '[]'",
+        False,
+    ),
+    (
+        "az monitor diagnostic-settings delete --name mydiag --resource /subscriptions/.../...",
+        False,
+    ),
+    # az ad - Azure Active Directory
+    ("az ad user list", True),
+    ("az ad user show --id user@example.com", True),
+    ("az ad group list", True),
+    ("az ad group show --group mygroup", True),
+    ("az ad group member list --group mygroup", True),
+    ("az ad app list", True),
+    ("az ad app show --id appid", True),
+    ("az ad sp list", True),
+    ("az ad sp show --id spid", True),
+    ("az ad signed-in-user show", True),
+    (
+        "az ad user create --display-name 'New User' --user-principal-name newuser@example.com --password pass",
+        False,
+    ),
+    ("az ad user delete --id user@example.com", False),
+    ("az ad group create --display-name 'New Group' --mail-nickname newgroup", False),
+    ("az ad group delete --group mygroup", False),
+    ("az ad group member add --group mygroup --member-id userid", False),
+    ("az ad group member remove --group mygroup --member-id userid", False),
+    ("az ad app create --display-name 'New App'", False),
+    ("az ad app delete --id appid", False),
+    ("az ad sp create --id appid", False),
+    ("az ad sp delete --id spid", False),
+    ("az ad sp credential reset --id spid", False),
+    # az container - Container Instances
+    ("az container list", True),
+    ("az container list --resource-group mygroup", True),
+    ("az container show --name mycontainer -g mygroup", True),
+    ("az container logs --name mycontainer -g mygroup", True),
+    ("az container logs --name mycontainer -g mygroup --follow", True),
+    (
+        "az container create --name newcontainer -g mygroup --image nginx --cpu 1 --memory 1",
+        False,
+    ),
+    ("az container delete --name mycontainer -g mygroup", False),
+    ("az container delete --name mycontainer -g mygroup --yes", False),
+    ("az container start --name mycontainer -g mygroup", False),
+    ("az container stop --name mycontainer -g mygroup", False),
+    ("az container restart --name mycontainer -g mygroup", False),
+    ("az container exec --name mycontainer -g mygroup --exec-command /bin/bash", False),
+    # az devops / pipelines / repos / boards (existing tests expanded)
+    ("az devops configure --list", True),
+    ("az devops project list --organization https://dev.azure.com/myorg", True),
+    (
+        "az devops project show --project myproject --organization https://dev.azure.com/myorg",
+        True,
+    ),
+    ("az devops service-endpoint list --project myproject", True),
+    ("az devops wiki list --project myproject", True),
+    ("az devops wiki show --wiki mywiki --project myproject", True),
+    ("az devops wiki page show --path /page --wiki mywiki --project myproject", True),
+    (
+        "az devops configure --defaults project=myproject organization=https://dev.azure.com/myorg",
+        False,
+    ),
+    ("az devops login --organization https://dev.azure.com/myorg", False),
+    (
+        "az devops project create --name newproject --organization https://dev.azure.com/myorg",
+        False,
+    ),
+    (
+        "az devops project delete --id projectid --organization https://dev.azure.com/myorg --yes",
+        False,
+    ),
+    ("az pipelines list --project myproject", True),
+    ("az pipelines show --name mypipeline --project myproject", True),
+    ("az pipelines runs list --pipeline-id 1 --project myproject", True),
+    ("az pipelines runs show --id 100 --project myproject", True),
+    ("az pipelines build list --project myproject", True),
+    ("az pipelines build show --id 100 --project myproject", True),
+    ("az pipelines variable-group list --project myproject", True),
+    ("az pipelines variable-group show --group-id 1 --project myproject", True),
+    (
+        "az pipelines agent list --pool-id 1 --organization https://dev.azure.com/myorg",
+        True,
+    ),
+    (
+        "az pipelines create --name newpipeline --repository myrepo --branch main --project myproject",
+        False,
+    ),
+    ("az pipelines delete --id 1 --project myproject --yes", False),
+    ("az pipelines run --name mypipeline --project myproject", False),
+    (
+        "az pipelines update --name mypipeline --new-name newname --project myproject",
+        False,
+    ),
+    ("az repos list --project myproject", True),
+    ("az repos show --repository myrepo --project myproject", True),
+    ("az repos pr list --project myproject", True),
+    ("az repos pr list --project myproject --status active", True),
+    ("az repos pr show --id 1 --project myproject", True),
+    ("az repos ref list --repository myrepo --project myproject", True),
+    ("az repos create --name newrepo --project myproject", False),
+    ("az repos delete --id repoid --project myproject --yes", False),
+    (
+        "az repos pr create --repository myrepo --source-branch feature --target-branch main --project myproject",
+        False,
+    ),
+    ("az repos pr update --id 1 --status completed --project myproject", False),
+    ("az repos policy list --repository-id repoid --project myproject", True),
+    (
+        "az repos policy build create --repository-id repoid --branch main --blocking --enabled --build-definition-id 1 --project myproject",
+        False,
+    ),
+    # az version/upgrade/interactive/feedback/configure
+    ("az version", True),
+    ("az --version", True),
+    ("az upgrade", False),
+    ("az interactive", False),
+    ("az feedback", False),
+    ("az configure", False),
+    ("az configure --defaults group=mygroup", False),
+    #
+    # ==========================================================================
+    # Kubernetes CLI (kubectl)
+    # ==========================================================================
+    #
+    # Kubectl with global flags (values could match action names)
+    ("kubectl --context delete get pods", True),
+    ("kubectl -n delete get pods", True),
+    ("kubectl --namespace exec get pods", True),
+    ("kubectl --context mycluster delete pod foo", False),
+    # Kubectl with flags before action
+    ("kubectl --context=foo get pods", True),
+    ("kubectl --context=foo get managedcertificate ci-api -o jsonpath='{}'", True),
+    ("kubectl -n kube-system describe pod foo", True),
+    ("kubectl delete pod foo", False),
+    ("kubectl --context=foo delete pod list", False),  # deleting pod named "list"
+    ("kubectl apply -f foo.yaml", False),
+    ("kubectl exec -it foo -- bash", False),
+    # Kubectl - comprehensive tests
+    # kubectl - safe (read-only commands)
+    ("kubectl get pods", True),
+    ("kubectl get pods -n kube-system", True),
+    ("kubectl get pods --all-namespaces", True),
+    ("kubectl get pods -A", True),
+    ("kubectl get pods -o wide", True),
+    ("kubectl get pods -o json", True),
+    ("kubectl get pods -o yaml", True),
+    ("kubectl get pods -o jsonpath='{.items[*].metadata.name}'", True),
+    ("kubectl get pods --watch", True),
+    ("kubectl get pods -w", True),
+    ("kubectl get pods --selector=app=nginx", True),
+    ("kubectl get nodes", True),
+    ("kubectl get services", True),
+    ("kubectl get deployments", True),
+    ("kubectl get namespaces", True),
+    ("kubectl get all", True),
+    ("kubectl get all -A", True),
+    ("kubectl get configmaps", True),
+    ("kubectl get secrets", True),
+    ("kubectl get ingress", True),
+    ("kubectl get pv", True),
+    ("kubectl get pvc", True),
+    ("kubectl get events", True),
+    ("kubectl get events --sort-by='.lastTimestamp'", True),
+    ("kubectl describe pod nginx", True),
+    ("kubectl describe pod nginx -n default", True),
+    ("kubectl describe node worker-1", True),
+    ("kubectl describe deployment nginx", True),
+    ("kubectl describe service nginx", True),
+    ("kubectl describe configmap my-config", True),
+    ("kubectl logs nginx", True),
+    ("kubectl logs nginx -c container", True),
+    ("kubectl logs nginx --all-containers", True),
+    ("kubectl logs nginx -f", True),
+    ("kubectl logs nginx --follow", True),
+    ("kubectl logs nginx --tail=100", True),
+    ("kubectl logs nginx --since=1h", True),
+    ("kubectl logs nginx --timestamps", True),
+    ("kubectl logs deployment/nginx", True),
+    ("kubectl logs -l app=nginx", True),
+    ("kubectl explain pods", True),
+    ("kubectl explain pods.spec", True),
+    ("kubectl explain pods.spec.containers", True),
+    ("kubectl explain deployment.spec.template", True),
+    ("kubectl top pods", True),
+    ("kubectl top pods -n kube-system", True),
+    ("kubectl top nodes", True),
+    ("kubectl top pod nginx --containers", True),
+    ("kubectl cluster-info", True),
+    ("kubectl cluster-info dump", True),
+    ("kubectl cluster-info dump --output-directory=/tmp/cluster-state", True),
+    ("kubectl api-resources", True),
+    ("kubectl api-resources --namespaced=true", True),
+    ("kubectl api-resources --api-group=apps", True),
+    ("kubectl api-versions", True),
+    ("kubectl version", True),
+    ("kubectl version --client", True),
+    ("kubectl version -o json", True),
+    ("kubectl diff -f deployment.yaml", True),
+    ("kubectl diff -f ./manifests/", True),
+    ("kubectl wait --for=condition=Ready pod/nginx", True),
+    ("kubectl wait --for=condition=Available deployment/nginx", True),
+    ("kubectl wait --for=delete pod/nginx --timeout=60s", True),
+    ("kubectl auth can-i get pods", True),
+    ("kubectl auth can-i create deployments", True),
+    ("kubectl auth can-i '*' '*' -n default", True),
+    ("kubectl auth can-i --list", True),
+    ("kubectl auth can-i get pods --as system:serviceaccount:default:default", True),
+    ("kubectl auth whoami", True),
+    ("kubectl rollout status deployment/nginx", True),
+    ("kubectl rollout status daemonset/fluentd -n kube-system", True),
+    ("kubectl rollout history deployment/nginx", True),
+    ("kubectl rollout history deployment/nginx --revision=2", True),
+    ("kubectl config view", True),
+    ("kubectl config view --minify", True),
+    ("kubectl config view -o jsonpath='{.users[*].name}'", True),
+    ("kubectl config get-contexts", True),
+    ("kubectl config get-clusters", True),
+    ("kubectl config get-users", True),
+    ("kubectl config current-context", True),
+    ("kubectl plugin list", True),
+    ("kubectl completion bash", True),
+    ("kubectl completion zsh", True),
+    ("kubectl kustomize ./overlays/production", True),
+    ("kubectl --help", True),
+    ("kubectl -h", True),
+    ("kubectl get --help", True),
+    ("kubectl --version", True),
+    # kubectl - unsafe (resource modification)
+    ("kubectl apply -f deployment.yaml", False),
+    ("kubectl apply -f ./manifests/", False),
+    ("kubectl apply -k ./overlays/production", False),
+    ("kubectl apply --dry-run=client -f deployment.yaml", False),
+    ("kubectl create deployment nginx --image=nginx", False),
+    ("kubectl create namespace test", False),
+    ("kubectl create configmap my-config --from-literal=key=value", False),
+    ("kubectl create secret generic my-secret --from-literal=password=secret", False),
+    ("kubectl create -f pod.yaml", False),
+    ("kubectl delete pod nginx", False),
+    ("kubectl delete pod nginx -n default", False),
+    ("kubectl delete pods --all", False),
+    ("kubectl delete -f deployment.yaml", False),
+    ("kubectl delete deployment nginx", False),
+    ("kubectl delete namespace test", False),
+    ("kubectl edit deployment nginx", False),
+    ("kubectl edit configmap my-config", False),
+    ('kubectl patch deployment nginx -p \'{"spec":{"replicas":3}}\'', False),
+    (
+        'kubectl patch pod nginx --type=\'json\' -p=\'[{"op": "replace", "path": "/spec/containers/0/image", "value":"nginx:latest"}]\'',
+        False,
+    ),
+    ("kubectl replace -f deployment.yaml", False),
+    ("kubectl replace --force -f pod.yaml", False),
+    ("kubectl label pods nginx app=v2", False),
+    ("kubectl label pods nginx app-", False),
+    ("kubectl label pods --all status=running", False),
+    ("kubectl annotate pods nginx description='my pod'", False),
+    ("kubectl annotate pods nginx description-", False),
+    ("kubectl set image deployment/nginx nginx=nginx:1.19", False),
+    (
+        "kubectl set resources deployment/nginx -c=nginx --limits=cpu=200m,memory=512Mi",
+        False,
+    ),
+    ("kubectl set env deployment/nginx ENV_VAR=value", False),
+    # kubectl - unsafe (scaling)
+    ("kubectl scale deployment nginx --replicas=3", False),
+    ("kubectl scale --replicas=5 -f deployment.yaml", False),
+    ("kubectl autoscale deployment nginx --min=2 --max=10 --cpu-percent=80", False),
+    # kubectl - unsafe (run/debug)
+    ("kubectl run nginx --image=nginx", False),
+    ("kubectl run nginx --image=nginx --restart=Never", False),
+    ("kubectl run -it busybox --image=busybox -- sh", False),
+    ("kubectl attach nginx -c container", False),
+    ("kubectl debug nginx --image=busybox", False),
+    ("kubectl debug nginx -it --image=ubuntu", False),
+    ("kubectl cp /tmp/foo nginx:/tmp/bar", False),
+    ("kubectl cp nginx:/tmp/foo /tmp/bar", False),
+    ("kubectl port-forward pod/nginx 8080:80", False),
+    ("kubectl port-forward svc/nginx 8080:80", False),
+    ("kubectl proxy", False),
+    ("kubectl proxy --port=8001", False),
+    # kubectl - unsafe (rollout mutations)
+    ("kubectl rollout restart deployment/nginx", False),
+    ("kubectl rollout undo deployment/nginx", False),
+    ("kubectl rollout undo deployment/nginx --to-revision=2", False),
+    ("kubectl rollout pause deployment/nginx", False),
+    ("kubectl rollout resume deployment/nginx", False),
+    # kubectl - unsafe (node management)
+    ("kubectl cordon node-1", False),
+    ("kubectl uncordon node-1", False),
+    ("kubectl drain node-1", False),
+    ("kubectl drain node-1 --ignore-daemonsets", False),
+    ("kubectl drain node-1 --delete-emptydir-data", False),
+    ("kubectl taint nodes node-1 key=value:NoSchedule", False),
+    ("kubectl taint nodes node-1 key:NoSchedule-", False),
+    # kubectl - unsafe (config modifications)
+    ("kubectl config use-context production", False),
+    ("kubectl config use production", False),
+    ("kubectl config set-context --current --namespace=test", False),
+    ("kubectl config set-context production --cluster=prod-cluster", False),
+    ("kubectl config set-cluster prod-cluster --server=https://k8s.example.com", False),
+    ("kubectl config set-credentials user --token=token123", False),
+    ("kubectl config delete-context production", False),
+    ("kubectl config delete-cluster prod-cluster", False),
+    ("kubectl config delete-user admin", False),
+    ("kubectl config rename-context old-name new-name", False),
+    # kubectl - unsafe (certificate management)
+    ("kubectl certificate approve csr-name", False),
+    ("kubectl certificate deny csr-name", False),
+    # kubectl - unsafe (expose services)
+    ("kubectl expose deployment nginx --port=80 --target-port=8080", False),
+    ("kubectl expose pod nginx --port=80 --type=NodePort", False),
+    #
+    # ==========================================================================
+    # Terraform
+    # ==========================================================================
+    #
+    # terraform - safe (read-only commands)
+    ("terraform plan", True),
+    ("terraform plan -out=plan.tfplan", True),
+    ("terraform plan -var 'name=value'", True),
+    ("terraform plan -var-file=vars.tfvars", True),
+    ("terraform plan -target=aws_instance.foo", True),
+    ("terraform plan -destroy", True),
+    ("terraform plan -refresh-only", True),
+    ("terraform plan -json", True),
+    ("terraform show", True),
+    ("terraform show plan.tfplan", True),
+    ("terraform show -json", True),
+    ("terraform show -json plan.tfplan", True),
+    ("terraform state list", True),
+    ("terraform state list aws_instance.foo", True),
+    ("terraform state show aws_instance.foo", True),
+    ("terraform state show -json aws_instance.foo", True),
+    ("terraform state pull", True),
+    ("terraform validate", True),
+    ("terraform validate -json", True),
+    ("terraform validate -no-color", True),
+    ("terraform fmt", True),
+    ("terraform fmt -check", True),
+    ("terraform fmt -diff", True),
+    ("terraform fmt -recursive", True),
+    ("terraform fmt -write=false", True),
+    ("terraform fmt -list=false", True),
+    ("terraform output", True),
+    ("terraform output my_output", True),
+    ("terraform output -json", True),
+    ("terraform output -raw my_output", True),
+    ("terraform output -state=terraform.tfstate", True),
+    ("terraform providers", True),
+    ("terraform providers lock", True),
+    ("terraform providers mirror ./providers", True),
+    ("terraform providers schema -json", True),
+    ("terraform graph", True),
+    ("terraform graph -type=plan", True),
+    ("terraform graph -draw-cycles", True),
+    ("terraform graph | dot -Tpng > graph.png", False),  # has output redirect
+    ("terraform console", True),
+    ("terraform console -var 'name=value'", True),
+    ("terraform get", True),
+    ("terraform get -update", True),
+    ("terraform version", True),
+    ("terraform version -json", True),
+    ("terraform modules", True),
+    ("terraform modules -json", True),
+    ("terraform metadata functions", True),
+    ("terraform metadata functions -json", True),
+    ("terraform test", True),
+    ("terraform test -filter=test_file.tftest.hcl", True),
+    ("terraform test -json", True),
+    ("terraform refresh", True),
+    ("terraform refresh -target=aws_instance.foo", True),
+    ("terraform --help", True),
+    ("terraform -help", True),
+    ("terraform plan --help", True),
+    ("terraform --version", True),
+    # terraform - safe (workspace list/show/select)
+    ("terraform workspace list", True),
+    ("terraform workspace show", True),
+    ("terraform workspace select default", True),
+    ("terraform workspace select -or-create dev", True),
+    # terraform - unsafe (apply/destroy/init)
+    ("terraform apply", False),
+    ("terraform apply -auto-approve", False),
+    ("terraform apply plan.tfplan", False),
+    ("terraform apply -var 'name=value'", False),
+    ("terraform apply -target=aws_instance.foo", False),
+    ("terraform destroy", False),
+    ("terraform destroy -auto-approve", False),
+    ("terraform destroy -target=aws_instance.foo", False),
+    ("terraform init", False),
+    ("terraform init -upgrade", False),
+    ("terraform init -reconfigure", False),
+    ("terraform init -migrate-state", False),
+    ("terraform init -backend=false", False),
+    ("terraform import aws_instance.foo i-123", False),
+    ("terraform import -var 'name=value' aws_instance.foo i-123", False),
+    # terraform - unsafe (state mutations)
+    ("terraform state mv aws_instance.foo aws_instance.bar", False),
+    ("terraform state rm aws_instance.foo", False),
+    ("terraform state push terraform.tfstate", False),
+    ("terraform state replace-provider hashicorp/aws registry.example.com/aws", False),
+    # terraform - unsafe (resource marking)
+    ("terraform taint aws_instance.foo", False),
+    ("terraform untaint aws_instance.foo", False),
+    # terraform - unsafe (workspace create/delete)
+    ("terraform workspace new dev", False),
+    ("terraform workspace delete dev", False),
+    # terraform - unsafe (lock management)
+    ("terraform force-unlock 1234-5678", False),
+    # terraform - unsafe (authentication)
+    ("terraform login", False),
+    ("terraform login app.terraform.io", False),
+    ("terraform logout", False),
+    ("terraform logout app.terraform.io", False),
+    #
+    # ==========================================================================
+    # AWS CDK
+    # ==========================================================================
+    #
+    # cdk - safe (read-only commands)
+    ("cdk list", True),
+    ("cdk ls", True),
+    ("cdk list --long", True),
+    ("cdk ls -l", True),
+    ("cdk list --app 'npx ts-node bin/app.ts'", True),
+    ("cdk diff", True),
+    ("cdk diff MyStack", True),
+    ("cdk diff --app 'npx ts-node bin/app.ts'", True),
+    ("cdk diff --template template.yaml", True),
+    ("cdk diff --security-only", True),
+    ("cdk diff --fail", True),
+    ("cdk synth", True),
+    ("cdk synthesize", True),
+    ("cdk synth MyStack", True),
+    ("cdk synth --quiet", True),
+    ("cdk synth --json", True),
+    ("cdk synth --app 'npx ts-node bin/app.ts'", True),
+    ("cdk synth --output cdk.out", True),
+    ("cdk synth --exclusively", True),
+    ("cdk docs", True),
+    ("cdk doctor", True),
+    ("cdk metadata", True),
+    ("cdk metadata MyStack", True),
+    ("cdk notices", True),
+    ("cdk notices --unacknowledged", True),
+    ("cdk acknowledge 12345", True),
+    ("cdk context", True),
+    ("cdk context --json", True),
+    ("cdk version", True),
+    ("cdk --version", True),
+    ("cdk --help", True),
+    ("cdk -h", True),
+    ("cdk deploy --help", True),
+    # cdk - unsafe (infrastructure changes)
+    ("cdk deploy", False),
+    ("cdk deploy MyStack", False),
+    ("cdk deploy --all", False),
+    ("cdk deploy --require-approval never", False),
+    ("cdk deploy --hotswap", False),
+    ("cdk deploy --force", False),
+    ("cdk deploy --app 'npx ts-node bin/app.ts'", False),
+    ("cdk destroy", False),
+    ("cdk destroy MyStack", False),
+    ("cdk destroy --all", False),
+    ("cdk destroy --force", False),
+    ("cdk bootstrap", False),
+    ("cdk bootstrap aws://123456789012/us-east-1", False),
+    ("cdk bootstrap --trust 123456789012", False),
+    # cdk - unsafe (project initialization)
+    ("cdk init", False),
+    ("cdk init app", False),
+    ("cdk init app --language typescript", False),
+    ("cdk init lib --language python", False),
+    ("cdk init sample-app --language java", False),
+    # cdk - unsafe (resource import/migration)
+    ("cdk import", False),
+    ("cdk import MyStack", False),
+    ("cdk migrate", False),
+    ("cdk migrate --from-path template.yaml", False),
+    ("cdk migrate --from-stack MyCloudFormationStack", False),
+    # cdk - unsafe (continuous deployment)
+    ("cdk watch", False),
+    ("cdk watch MyStack", False),
+    ("cdk watch --hotswap", False),
+    # cdk - unsafe (garbage collection)
+    ("cdk gc", False),
+    ("cdk gc --type all", False),
+    # cdk - unsafe (context modifications)
+    ("cdk context --reset", False),
+    ("cdk context --clear", False),
+    ("cdk context --reset key", False),
+    # cdk - unsafe (refactoring)
+    ("cdk refactor", False),
+    ("cdk refactor --dry-run", False),
+    #
+    # ==========================================================================
+    # Archive tools (tar, unzip, 7z)
+    # ==========================================================================
+    #
+    # tar - safe (list only)
+    ("tar -tf archive.tar", True),
+    ("tar -tvf archive.tar.gz", True),
+    ("tar --list -f archive.tar", True),
+    ("tar -ztf archive.tar.gz", True),
+    ("tar tf archive.tar", True),
+    ("tar -t -f archive.tar", True),
+    # tar - unsafe (create/extract)
+    ("tar -cf archive.tar file.txt", False),
+    ("tar -czf archive.tar.gz dir/", False),
+    ("tar -xf archive.tar", False),
+    ("tar -xvf archive.tar.gz", False),
+    ("tar --extract -f archive.tar", False),
+    ("tar -rf archive.tar newfile.txt", False),
+    ("tar xf archive.tar", False),
+    # unzip - safe (list only)
+    ("unzip -l archive.zip", True),
+    ("unzip -lv archive.zip", True),
+    ("unzip -lq archive.zip", True),
+    # unzip - unsafe (extract)
+    ("unzip archive.zip", False),
+    ("unzip archive.zip -d outdir", False),
+    ("unzip -o archive.zip", False),
+    ("unzip -x archive.zip", False),
+    # 7z - safe (list only)
+    ("7z l archive.7z", True),
+    ("7z l -slt archive.7z", True),
+    # 7z - unsafe (add/extract)
+    ("7z a archive.7z file.txt", False),
+    ("7z x archive.7z", False),
+    ("7z e archive.7z", False),
+    ("7z d archive.7z file.txt", False),
+    #
+    # ==========================================================================
+    # Package managers (npm, pip, yarn, pnpm, brew)
+    # ==========================================================================
+    #
+    # npm - safe (read-only)
+    ("npm list", True),
+    ("npm ls", True),
+    ("npm ls --depth=0", True),
+    ("npm view lodash", True),
+    ("npm view lodash version", True),
+    ("npm show express", True),
+    ("npm outdated", True),
+    ("npm audit", True),
+    ("npm search lodash", True),
+    ("npm explain lodash", True),
+    ("npm fund", True),
+    ("npm doctor", True),
+    ("npm why lodash", True),
+    ("npm help install", True),
+    # npm - unsafe (mutations)
+    ("npm install", False),
+    ("npm install lodash", False),
+    ("npm i lodash", False),
+    ("npm uninstall lodash", False),
+    ("npm update", False),
+    ("npm publish", False),
+    ("npm run build", False),
+    ("npm init", False),
+    ("npm link", False),
+    # pip - safe (read-only)
+    ("pip list", True),
+    ("pip show requests", True),
+    ("pip freeze", True),
+    ("pip check", True),
+    ("pip index versions requests", True),
+    ("pip help install", True),
+    # pip - unsafe (mutations)
+    ("pip install requests", False),
+    ("pip install -r requirements.txt", False),
+    ("pip uninstall requests", False),
+    ("pip download requests", False),
+    # yarn - safe (read-only)
+    ("yarn list", True),
+    ("yarn info lodash", True),
+    ("yarn why lodash", True),
+    ("yarn audit", True),
+    ("yarn outdated", True),
+    ("yarn licenses list", True),
+    ("yarn help", True),
+    # yarn - unsafe (mutations)
+    ("yarn add lodash", False),
+    ("yarn remove lodash", False),
+    ("yarn install", False),
+    ("yarn upgrade", False),
+    ("yarn run build", False),
+    # pnpm - safe (read-only)
+    ("pnpm list", True),
+    ("pnpm ls", True),
+    ("pnpm why lodash", True),
+    ("pnpm audit", True),
+    ("pnpm outdated", True),
+    ("pnpm licenses list", True),
+    # pnpm - unsafe (mutations)
+    ("pnpm add lodash", False),
+    ("pnpm remove lodash", False),
+    ("pnpm install", False),
+    ("pnpm update", False),
+    ("pnpm run build", False),
+    # Openssl x509 with -noout (read-only)
+    ("openssl x509 -noout -text", True),
+    ("openssl x509 -noout -text -in cert.pem", True),
+    ("openssl x509 -noout -subject -issuer", True),
+    ("openssl x509 -text", False),  # no -noout, could write encoded output
+    ("openssl x509 -in cert.pem -out cert.der", False),
+    ("openssl req -new -key key.pem", False),
+    # Network diagnostic tools with checks
+    ("ip addr", True),
+    ("ip addr show", True),
+    ("ip route", True),
+    ("ip link show", True),
+    ("ip -4 addr show", True),
+    ("ip addr add 192.168.1.1/24 dev eth0", False),
+    ("ip link set eth0 up", False),
+    ("ip route del default", False),
+    ("ip netns exec myns ip addr", False),  # runs commands in namespace
+    ("ifconfig", True),
+    ("ifconfig eth0", True),
+    ("ifconfig eth0 up", False),
+    ("ifconfig eth0 down", False),
+    ("ifconfig eth0 192.168.1.1", False),  # setting IP address
+    ("ifconfig eth0 192.168.1.1 netmask 255.255.255.0", False),
+    ("journalctl", True),
+    ("journalctl -f", True),
+    ("journalctl -u sshd", True),
+    ("journalctl --rotate", False),
+    ("journalctl --vacuum-time=1d", False),
+    ("journalctl --flush", False),
+    ("dmesg", True),
+    ("dmesg -T", True),
+    ("dmesg -c", False),
+    ("dmesg --clear", False),
+    ("ping google.com", True),
+    ("ping -c 4 google.com", True),
+    #
+    # ==========================================================================
+    # Auth0 CLI
+    # ==========================================================================
+    #
+    # Auth0 CLI - safe (read-only actions)
+    ("auth0 apps list", True),
+    ("auth0 apps show app123", True),
+    ("auth0 users search", True),
+    ("auth0 users search-by-email", True),
+    ("auth0 users show user123", True),
+    ("auth0 logs list", True),
+    ("auth0 logs tail", True),
+    ("auth0 actions list", True),
+    ("auth0 actions show action123", True),
+    ("auth0 actions diff", True),
+    ("auth0 roles list", True),
+    ("auth0 orgs list", True),
+    ("auth0 apis list", True),
+    ("auth0 domains list", True),
+    ("auth0 tenants list", True),
+    ("auth0 event-streams stats", True),
+    ("auth0 --tenant foo.auth0.com apps list", True),
+    ("auth0 --tenant foo.auth0.com users show user123", True),
+    # Auth0 CLI - unsafe (mutations)
+    ("auth0 apps create", False),
+    ("auth0 apps update app123", False),
+    ("auth0 apps delete app123", False),
+    ("auth0 users create", False),
+    ("auth0 users update user123", False),
+    ("auth0 users delete user123", False),
+    ("auth0 actions deploy", False),
+    ("auth0 roles create", False),
+    ("auth0 orgs create", False),
+    ("auth0 --tenant foo.auth0.com apps create", False),
+    # Auth0 api - safe (GET requests)
+    ("auth0 api tenants/settings", True),
+    ("auth0 api get tenants/settings", True),
+    ("auth0 api get clients", True),
+    ("auth0 api users", True),
+    # Auth0 api - unsafe (mutations)
+    ("auth0 api post clients", False),
+    ("auth0 api put clients/123", False),
+    ("auth0 api patch clients/123", False),
+    ("auth0 api delete clients/123", False),
+    ("auth0 api clients -d '{}'", False),
+    ("auth0 api clients --data '{}'", False),
+    #
+    # ==========================================================================
+    # Shell wrappers and xargs
+    # ==========================================================================
+    #
+    # Shell -c wrappers - safe inner commands
+    ("bash -c 'echo hello'", True),
+    ("bash -c 'ls -la'", True),
+    ("bash -c 'git status'", True),
+    ("bash -c 'echo foo && ls'", True),
+    ("sh -c 'cat file.txt'", True),
+    ("sh -c 'grep pattern file'", True),
+    ("zsh -c 'pwd'", True),
+    ("zsh -c 'git log --oneline'", True),
+    ('bash -c "echo hello"', True),
+    ('bash -c "aws s3 ls"', True),
+    # Shell -c wrappers - unsafe inner commands
+    ("bash -c 'rm -rf /'", False),
+    ("bash -c 'git push'", False),
+    ("bash -c 'echo foo && rm bar'", False),
+    ("sh -c 'aws s3 rm s3://bucket/key'", False),
+    ("zsh -c 'kubectl delete pod foo'", False),
+    ('bash -c "rm file"', False),
+    # Shell -c edge cases
+    ("bash -c", False),  # missing command
+    ("bash -x -c 'echo'", True),  # other flags before -c
+    ("bash script.sh", False),  # no -c flag, not safe
+    # Shell combined flags (-lc, -xc, -cl, etc.)
+    ("bash -lc 'echo hello'", True),
+    ("bash -xc 'git status'", True),
+    ("bash -ilc 'ls -la'", True),
+    ("zsh -ilc 'pwd'", True),
+    ("sh -lc 'cat file'", True),
+    ("bash -lc 'rm foo'", False),
+    ("bash -xc 'git push'", False),
+    ("bash -cl 'echo hello'", True),  # -c not at end
+    ("bash -cxl 'ls'", True),  # -c at start
+    ("sh -cl 'git status'", True),
+    ("bash -cl 'rm foo'", False),
+    #
+    # ==========================================================================
+    # xargs
+    # ==========================================================================
+    #
+    # xargs - safe (inner command is safe)
+    ("xargs ls", True),
+    ("xargs cat", True),
+    ("xargs grep pattern", True),
+    ("xargs rg -l pattern", True),
+    ("xargs head -5", True),
+    ("xargs tail -n 10", True),
+    ("xargs wc -l", True),
+    ("xargs file", True),
+    ("xargs stat", True),
+    ("xargs md5sum", True),
+    ("xargs sha256sum", True),
+    ("xargs du -sh", True),
+    ("xargs ls -la", True),
+    ("xargs diff", True),
+    ("xargs basename", True),
+    ("xargs dirname", True),
+    ("xargs realpath", True),
+    ("xargs readlink", True),
+    # xargs with pipeline input (safe)
+    ("find . -name '*.py' | xargs grep TODO", True),
+    ("fd -t f | xargs head -5", True),
+    ("ls | xargs -I {} stat {}", True),
+    ("git ls-files | xargs wc -l", True),
+    ("git ls-files '*.conf' | xargs cat", True),
+    ("echo 'file.txt' | xargs cat", True),
+    # xargs with -0/--null (null-terminated input)
+    ("xargs -0 cat", True),
+    ("xargs --null cat", True),
+    ("find . -print0 | xargs -0 grep pattern", True),
+    ("find . -print0 | xargs --null wc -l", True),
+    ("git ls-files -z | xargs -0 head -1", True),
+    # xargs with -I/--replace (replacement string)
+    ("xargs -I {} cat {}", True),
+    ("xargs -i cat {}", True),
+    ("xargs --replace={} cat {}", True),
+    ("xargs -I FILE head FILE", True),
+    ("xargs -I % grep pattern %", True),
+    ("xargs -I {} -P 4 head -10 {}", True),
+    ("xargs -I{} cat {}", True),  # no space after -I
+    # xargs with -n/--max-args (items per command)
+    ("xargs -n 1 ls", True),
+    ("xargs -n 5 cat", True),
+    ("xargs --max-args=10 grep pattern", True),
+    ("xargs -n1 head", True),  # no space after -n
+    # xargs with -P/--max-procs (parallel execution)
+    ("xargs -P 4 grep pattern", True),
+    ("xargs --max-procs=8 cat", True),
+    ("xargs -P4 wc -l", True),  # no space after -P
+    ("xargs -P 0 head -5", True),  # 0 means as many as possible
+    # xargs with -L/--max-lines (lines per command)
+    ("xargs -L 1 head", True),
+    ("xargs --max-lines=5 cat", True),
+    ("xargs -L1 grep pattern", True),
+    # xargs with -d/--delimiter
+    ("xargs -d '\\n' cat", True),
+    ("xargs --delimiter='\\n' cat", True),
+    ("xargs -d ',' wc -l", True),
+    ("xargs --delimiter=: head", True),
+    # xargs with -a/--arg-file
+    ("xargs -a files.txt cat", True),
+    ("xargs --arg-file=list.txt head", True),
+    ("xargs -a /dev/stdin grep pattern", True),
+    # xargs with -E/--eof (end of file string)
+    ("xargs -E EOF cat", True),
+    ("xargs -e STOP head", True),
+    ("xargs --eof=END wc -l", True),
+    # xargs with -s/--max-chars (max command line length)
+    ("xargs -s 1024 cat", True),
+    ("xargs --max-chars=2048 grep pattern", True),
+    # xargs with --process-slot-var
+    ("xargs --process-slot-var=SLOT cat", True),
+    # xargs BSD-specific flags
+    ("xargs -J % cp -Rp % destdir", False),  # cp is unsafe
+    ("xargs -J % cat %", True),
+    ("xargs -I {} -R 5 cat {}", True),  # -R limits replacements
+    ("xargs -I {} -S 255 cat {}", True),  # -S limits replacement size
+    ("xargs -I {} -R 5 -S 255 head {}", True),
+    # xargs with multiple flags combined
+    ("xargs -0 -n 1 -P 4 cat", True),
+    ("xargs --null --max-args=1 --max-procs=4 grep pattern", True),
+    ("xargs -I {} -P 4 -n 1 head {}", True),
+    ("xargs -0 -I {} -P 8 cat {}", True),
+    ("xargs -d '\\n' -n 5 -P 2 wc -l", True),
+    ("xargs -a files.txt -0 -n 1 cat", True),
+    # xargs with -- (end of flags)
+    ("xargs -- cat", True),
+    ("xargs -0 -- rg pattern", True),
+    ("xargs -0 -I {} -- cat {}", True),
+    ("xargs -P 4 -n 1 -- grep pattern", True),
+    ("xargs -I {} -- head -5 {}", True),
+    # xargs with safe git commands
+    ("xargs git status", True),
+    ("xargs git log --oneline", True),
+    ("xargs git diff", True),
+    ("xargs git show", True),
+    ("git ls-files | xargs git blame", True),
+    # xargs with safe aws commands
+    ("xargs aws s3 ls", True),
+    ("xargs aws ec2 describe-instances", True),
+    # xargs with safe kubectl commands
+    ("xargs kubectl get pods", True),
+    ("xargs kubectl describe pod", True),
+    # xargs - unsafe (inner command is unsafe)
+    ("xargs rm", False),
+    ("xargs rm -rf", False),
+    ("xargs rm -f", False),
+    ("xargs unlink", False),
+    ("xargs mv", False),
+    ("xargs cp", False),
+    ("xargs chmod 777", False),
+    ("xargs chown root", False),
+    ("xargs chgrp wheel", False),
+    ("xargs ln -s", False),
+    ("xargs mkdir", False),
+    ("xargs rmdir", False),
+    ("xargs touch", False),
+    ("xargs truncate -s 0", False),
+    ("xargs shred", False),
+    ("xargs dd", False),
+    # xargs with pipeline (unsafe inner command)
+    ("find . | xargs rm", False),
+    ("ls | xargs rm -f", False),
+    ("git ls-files | xargs rm", False),
+    # xargs with flags but unsafe inner command
+    ("xargs -0 rm", False),
+    ("xargs --null rm -rf", False),
+    ("xargs -I {} rm {}", False),
+    ("xargs -n 1 rm", False),
+    ("xargs -P 4 rm", False),
+    ("xargs -L 1 rm", False),
+    ("xargs -d '\\n' rm", False),
+    ("xargs -a files.txt rm", False),
+    ("xargs -- rm", False),
+    ("xargs -0 -n 1 -P 4 rm", False),
+    # xargs with unsafe git commands
+    ("xargs git push", False),
+    ("xargs git add", False),
+    ("xargs git commit", False),
+    ("xargs git reset --hard", False),
+    ("xargs git checkout", False),
+    ("git ls-files | xargs git rm", False),
+    # xargs with unsafe aws commands
+    ("xargs aws s3 rm", False),
+    ("xargs aws ec2 terminate-instances", False),
+    # xargs with unsafe kubectl commands
+    ("xargs kubectl delete", False),
+    ("xargs kubectl apply", False),
+    # xargs - no command (must defer, can't approve)
+    ("xargs", False),
+    ("xargs -0", False),
+    ("xargs -I {}", False),
+    ("xargs -n 1", False),
+    ("xargs -P 4", False),
+    ("xargs --null", False),
+    ("xargs -0 -n 1 -P 4", False),
+    ("xargs --", False),
+    ("xargs -0 --", False),
+    # xargs with shell -c (delegates to check_shell_c)
+    ("xargs -I {} sh -c 'echo {}'", True),
+    ("xargs -I {} bash -c 'cat {}'", True),
+    ("xargs -I {} zsh -c 'head {}'", True),
+    ("xargs sh -c 'echo hello'", True),
+    ("xargs bash -c 'git status'", True),
+    ("xargs -0 sh -c 'cat'", True),
+    ("xargs -I {} sh -c 'rm {}'", False),
+    ("xargs -I {} bash -c 'echo {} && rm {}'", False),
+    ("xargs sh -c 'rm foo'", False),
+    ("xargs bash -c 'git push'", False),
+    # xargs with env wrapper
+    ("xargs env cat", True),
+    ("xargs env FOO=bar cat", True),
+    ("xargs env rm", False),
+    # xargs with time wrapper
+    ("xargs time cat", True),
+    ("xargs time rm", False),
+    # xargs edge cases - flags that look like commands
+    ("xargs -r cat", True),  # -r is --no-run-if-empty
+    ("xargs --no-run-if-empty cat", True),
+    ("xargs -t cat", True),  # -t is --verbose
+    ("xargs --verbose cat", True),
+    ("xargs -p cat", False),  # -p is --interactive, prompts user
+    ("xargs --interactive cat", False),
+    ("xargs -o cat", False),  # -o is --open-tty, allows interactive input
+    ("xargs --open-tty cat", False),
+    ("xargs -x cat", True),  # -x is --exit
+    ("xargs --exit cat", True),
+    ("xargs -r -t cat", True),
+    ("xargs -rt cat", True),  # combined short flags
+    #
+    # ==========================================================================
+    # source / . (dot command)
+    # ==========================================================================
+    #
+    # source executes file contents in current shell - inherently unsafe
+    # since we cannot know what the file contains
+    ("source script.sh", False),
+    ("source ./script.sh", False),
+    ("source /path/to/script.sh", False),
+    ("source ~/.bashrc", False),
+    ("source ~/.bash_profile", False),
+    ("source ~/.profile", False),
+    ("source ~/.zshrc", False),
+    ("source /etc/profile", False),
+    ("source .env", False),
+    ("source .envrc", False),
+    # source with arguments passed to script
+    ("source script.sh arg1 arg2", False),
+    ("source ./setup.sh --install", False),
+    # Virtual environment activation (still unsafe - file could be modified)
+    ("source venv/bin/activate", False),
+    ("source .venv/bin/activate", False),
+    ("source ~/venvs/myenv/bin/activate", False),
+    # nvm, pyenv, etc.
+    ("source ~/.nvm/nvm.sh", False),
+    ("source ~/.pyenv/completions/pyenv.bash", False),
+    # Dot command (equivalent to source)
+    (". script.sh", False),
+    (". ./script.sh", False),
+    (". /path/to/script.sh", False),
+    (". ~/.bashrc", False),
+    (". ~/.profile", False),
+    (". .env", False),
+    (". venv/bin/activate", False),
+    (". .venv/bin/activate", False),
+    # Dot with arguments
+    (". script.sh arg1", False),
+    (". ./setup.sh --config", False),
+    # === Regression tests for refactor 1: flag skipping ===
+    # AWS global flags before service
+    ("aws --no-cli-pager --output json s3 ls", True),
+    ("aws --cli-connect-timeout 30 --ca-bundle /path ec2 describe-instances", True),
+    # env wrapper with mixed flags and VAR=val
+    ("env -i FOO=bar BAR=baz ls", True),
+    ("env --ignore-environment PATH=/bin ls", True),
+    ("env -u HOME -- git status", True),
+    # uv run with multiple flags consuming args
+    ("uv run --python 3.12 --with requests --group dev pytest", False),
+    ("uv run --no-project --python 3.11 ruff check", True),
+    # === Regression tests for refactor 2: token rejection ===
+    # sed prefix matching
+    ("sed -i'' 's/foo/bar/' file.txt", False),
+    ("sed -i.backup 's/foo/bar/' file.txt", False),
+    ("sed --in-place=.bak 's/foo/bar/' file.txt", False),
+    # sort prefix matching
+    ("sort -ooutput.txt file.txt", False),
+    # journalctl prefix matching
+    ("journalctl --vacuum-size=100M", False),
+    ("journalctl --vacuum-files=10", False),
+    # find exact matching tests are in test_find.py
+    # === Regression tests for refactor 3: inner command extraction ===
+    # xargs with -- separator
+    ("xargs -0 -I {} -- cat {}", True),
+    ("xargs -P 4 -n 1 -- grep pattern", True),
+    # shell -c with flags that take args
+    ("bash -o pipefail -c 'git log'", True),
+    ("bash -o pipefail -c 'rm foo'", False),
+    # shell with combined flags containing -c
+    ("bash -exc 'git status'", True),
+    ("bash -xec 'git log | head'", True),
+    ("sh -lc 'aws s3 ls'", True),
+    # xargs with flags consuming args
+    ("xargs -E EOF cat", True),
+    ("xargs -L 5 -I LINE head LINE", True),
+    ("xargs -d '\\n' wc -l", True),
+]
+
+
+@pytest.mark.parametrize("cmd,expected_safe", TESTS)
+def test_command(check, cmd, expected_safe):
+    """Test a command directly using the module's functions."""
+    result = check(cmd)
+    if expected_safe:
+        assert is_approved(result), f"Expected approved for: {cmd}"
+    else:
+        assert needs_confirmation(result), f"Expected confirmation for: {cmd}"
+
+
+class TestCLI:
+    """Test CLI flags (--help, --version) and TTY detection."""
+
+    def test_help_flag(self, capsys):
+        import sys
+        from unittest.mock import patch
+
+        with patch.object(sys, "argv", ["dippy", "--help"]):
+            from dippy.dippy import main
+
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "Usage:" in captured.out
+        assert "--claude" in captured.out
+
+    def test_help_flag_short(self, capsys):
+        import sys
+        from unittest.mock import patch
+
+        with patch.object(sys, "argv", ["dippy", "-h"]):
+            from dippy.dippy import main
+
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "Usage:" in captured.out
+
+    def test_version_flag(self, capsys):
+        import sys
+        from unittest.mock import patch
+
+        with patch.object(sys, "argv", ["dippy", "--version"]):
+            from dippy.dippy import main
+
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        from dippy import __version__
+
+        assert __version__ in captured.out
+
+    def test_tty_shows_help(self, capsys):
+        """When stdin is a TTY (no piped input), show help instead of hanging."""
+        import sys
+        from unittest.mock import patch
+
+        with patch.object(sys, "argv", ["dippy"]), patch.object(
+            sys.stdin, "isatty", return_value=True
+        ):
+            from dippy.dippy import main
+
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "no input" in captured.out
+        assert "--help" in captured.out
+
+
+class TestPostToolUse:
+    """Test PostToolUse hook handling."""
+
+    def test_post_tool_use_with_message(self, tmp_path, capsys):
+        from dippy.core.config import Config, Rule
+        from dippy.dippy import handle_post_tool_use
+
+        cfg = Config(after_rules=[Rule("after", "git push *", message="Check CI")])
+        handle_post_tool_use("git push origin main", cfg, tmp_path)
+        captured = capsys.readouterr()
+        assert captured.out == "🐤 Check CI\n"
+
+    def test_post_tool_use_no_match(self, tmp_path, capsys):
+        from dippy.core.config import Config, Rule
+        from dippy.dippy import handle_post_tool_use
+
+        cfg = Config(after_rules=[Rule("after", "git push *", message="Check CI")])
+        handle_post_tool_use("git status", cfg, tmp_path)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_post_tool_use_silent(self, tmp_path, capsys):
+        from dippy.core.config import Config, Rule
+        from dippy.dippy import handle_post_tool_use
+
+        cfg = Config(after_rules=[Rule("after", "npm install *", message="")])
+        handle_post_tool_use("npm install lodash", cfg, tmp_path)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_post_tool_use_last_match_wins(self, tmp_path, capsys):
+        from dippy.core.config import Config, Rule
+        from dippy.dippy import handle_post_tool_use
+
+        cfg = Config(
+            after_rules=[
+                Rule("after", "npm *", message="General npm"),
+                Rule("after", "npm install *", message="Installing deps"),
+            ]
+        )
+        handle_post_tool_use("npm install lodash", cfg, tmp_path)
+        captured = capsys.readouterr()
+        assert captured.out == "🐤 Installing deps\n"
+
+    def test_post_tool_use_quoted_args(self, tmp_path, capsys):
+        """Quoted arguments should be parsed properly, not split on spaces.
+
+        With naive split: ["git", "commit", "-m", '"fix:', "spaces"] → "git commit -m \"fix: spaces"
+        With Parable:     ["git", "commit", "-m", "fix: spaces"]     → "git commit -m fix: spaces"
+
+        Pattern 'git commit -m fix:*' matches proper parsing but not naive split.
+        """
+        from dippy.core.config import Config, Rule
+        from dippy.dippy import handle_post_tool_use
+
+        cfg = Config(
+            after_rules=[Rule("after", "git commit -m fix:*", message="Check CI")]
+        )
+        handle_post_tool_use('git commit -m "fix: spaces in message"', cfg, tmp_path)
+        captured = capsys.readouterr()
+        assert captured.out == "🐤 Check CI\n"
