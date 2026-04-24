@@ -1,0 +1,35 @@
+# ignore all hidden
+.*
+# except
+!.gitattributes
+!.gitignore
+!.gitmodules
+!.github
+!.github/**
+!.yamlfmt.yaml
+!.yamllint.yml
+!.mcp.json
+!**/.sessions/
+
+# Logs
+logs
+*.log*
+
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# AI tools
+!.serena
+!.claude
+!.claude-plugin
+!klaude-plugin/.claude-plugin
+.capy/**
+
+!.capy
+!.capy/knowledge.db
+
+# Go build artifacts
+/vendor-profiles
