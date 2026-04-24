@@ -1,0 +1,24 @@
+Expected stderr:
+
+✔ connect X.Xs
+├╴✔ starting engine X.Xs
+├╴✔ connecting to engine X.Xs
+│ ┃ XX:XX:XX INF connected name=xxxxxxxxxxxxx.xxxxxxxxxxxxx.dagger.local client-version=vX.X.X-xxxxxxxxxxxx-xxxxxxxxxxxx server-version=vX.X.X-xxxxxxxxxxxx-xxxxxxxxxxxx
+╰╴✔ starting session X.Xs
+
+✔ load workspace: . X.Xs
+╰╴✔ loading type definitions X.Xs
+
+✔ parsing command line arguments X.Xs
+
+$ viztest: Viztest! X.Xs CACHED
+✔ .encapsulate: Void X.Xs
+├╴$ container: Container! X.Xs CACHED
+├╴$ .from(address: "alpine"): Container! X.Xs CACHED
+├╴✔ withEnvVariable NOW=20XX-XX-XX XX:XX:XX.XXXX +XXXX UTC m=+X.X X.Xs
+╰╴✘ withExec sh -c 'echo im doing a lot of work; echo and then failing; exit 1' X.Xs ERROR
+  ┃ im doing a lot of work
+  ┃ and then failing
+  ! exit code: 1
+
+Setup tracing at https://dagger.cloud/traces/setup. To hide set DAGGER_NO_NAG=1

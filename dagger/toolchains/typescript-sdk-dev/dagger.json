@@ -1,0 +1,24 @@
+{
+  "name": "typescript-sdk-dev",
+  "engineVersion": "v0.20.6",
+  "sdk": {
+    "source": "github.com/vito/dang/dagger-sdk@352d057a4d4c4d77612104f842671b512495ef30"
+  },
+  "include": [
+    "is-semver"
+  ],
+  "dependencies": [
+    {
+      "name": "codegen",
+      "source": "../../cmd/codegen"
+    },
+    {
+      "name": "dagger-engine",
+      "source": "../engine-dev"
+    },
+    {
+      "name": "go",
+      "source": "../go"
+    }
+  ]
+}

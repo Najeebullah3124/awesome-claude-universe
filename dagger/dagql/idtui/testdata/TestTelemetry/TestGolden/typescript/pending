@@ -1,0 +1,25 @@
+Expected stderr:
+
+✔ connect X.Xs
+├╴✔ starting engine X.Xs
+├╴✔ connecting to engine X.Xs
+│ ┃ XX:XX:XX INF connected name=xxxxxxxxxxxxx.xxxxxxxxxxxxx.dagger.local client-version=vX.X.X-xxxxxxxxxxxx-xxxxxxxxxxxx server-version=vX.X.X-xxxxxxxxxxxx-xxxxxxxxxxxx
+╰╴✔ starting session X.Xs
+
+✔ load workspace: . X.Xs
+╰╴✔ loading type definitions X.Xs
+
+✔ parsing command line arguments X.Xs
+
+$ typescript: Typescript! X.Xs CACHED
+✘ .pending: Void X.Xs ERROR
+├╴$ container: Container! X.Xs CACHED
+├╴$ .from(address: "alpine:latest"): Container! X.Xs CACHED
+├╴✔ withEnvVariable NOW=XXXX-XX-XXTXX:XX:XX.XXXZ X.Xs
+├╴✔ withExec sleep 1 X.Xs
+├╴✘ withExec false X.Xs ERROR
+│ ! exit code: 1
+╰╴✘ withExec sleep 1 X.Xs ERROR
+  ! 2x exit code: 1
+
+Setup tracing at https://dagger.cloud/traces/setup. To hide set DAGGER_NO_NAG=1
