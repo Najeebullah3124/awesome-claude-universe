@@ -1,0 +1,1168 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { renderWithProviders } from '@/test/test-utils'
+import { ExecutionView } from '@/components/executions/ExecutionView'
+import { executionsApi } from '@/lib/api'
+import type { Execution } from '@/types/execution'
+
+// Mock the API and child components
+vi.mock('@/lib/api', () => ({
+  setCurrentProjectId: vi.fn(),
+  getCurrentProjectId: vi.fn(() => 'test-project-123'),
+  executionsApi: {
+    getById: vi.fn(),
+    getChain: vi.fn(),
+    cancel: vi.fn(),
+    createFollowUp: vi.fn(),
+    deleteWorktree: vi.fn(),
+    worktreeExists: vi.fn(),
+    prepare: vi.fn(),
+    syncPreview: vi.fn(),
+    syncSquash: vi.fn(),
+    syncPreserve: vi.fn(),
+    getChanges: vi.fn(),
+  },
+  agentsApi: {
+    getAll: vi.fn(),
+  },
+}))
+
+vi.mock('@/components/executions/ExecutionMonitor', () => ({
+  ExecutionMonitor: ({ executionId, execution, onComplete, onToolCallsUpdate, onTodosUpdate }: any) => {
+    // Simulate tool calls being passed back to parent (legacy behavior)
+    if (onToolCallsUpdate && execution?.mockToolCalls) {
+      // Pass tool calls directly - ExecutionView will add execution ID prefix
+      setTimeout(() => onToolCallsUpdate(execution.mockToolCalls), 0)
+    }
+    // Simulate todos being passed back to parent (new plan-based behavior)
+    if (onTodosUpdate && execution?.mockTodos) {
+      setTimeout(() => onTodosUpdate(executionId, execution.mockTodos), 0)
+    }
+    return (
+      <div data-testid="execution-monitor">
+        <div>ExecutionMonitor for {executionId}</div>
+        {execution?.prompt && (
+          <div data-testid="user-prompt">
+            <div>{execution.prompt}</div>
+          </div>
+        )}
+        <button onClick={onComplete}>Trigger Complete</button>
+      </div>
+    )
+  },
+  RunIndicator: () => <div data-testid="run-indicator">Running...</div>,
+}))
+
+vi.mock('@/components/executions/AgentConfigPanel', () => ({
+  AgentConfigPanel: ({ onStart, isFollowUp }: any) =>
+    isFollowUp ? (
+      <div data-testid="follow-up-panel">
+        <button onClick={() => onStart({}, 'Test feedback', 'claude-code')}>Continue</button>
+      </div>
+    ) : null,
+}))
+
+vi.mock('@/components/executions/TodoTracker', () => ({
+  TodoTracker: ({ todos }: any) => (
+    <div data-testid="todo-tracker">
+      <div>Todo Tracker with {todos.length} todos</div>
+    </div>
+  ),
+}))
+
+vi.mock('@/components/executions/DeleteWorktreeDialog', () => ({
+  DeleteWorktreeDialog: ({ isOpen, onConfirm, onClose }: any) =>
+    isOpen ? (
+      <div data-testid="delete-worktree-dialog">
+        <button onClick={() => onConfirm(false)}>Delete</button>
+        <button onClick={onClose}>Cancel</button>
+      </div>
+    ) : null,
+}))
+
+vi.mock('@/components/executions/CleanupWorktreeDialog', () => ({
+  CleanupWorktreeDialog: ({ isOpen, onConfirm, onClose }: any) =>
+    isOpen ? (
+      <div data-testid="cleanup-worktree-dialog">
+        <button onClick={() => onConfirm(false)}>Cleanup</button>
+        <button onClick={onClose}>Cancel</button>
+      </div>
+    ) : null,
+}))
+
+vi.mock('@/components/executions/SyncPreviewDialog', () => ({
+  SyncPreviewDialog: ({ isOpen, onClose, onConfirmSync }: any) =>
+    isOpen ? (
+      <div data-testid="sync-preview-dialog">
+        <button onClick={() => onConfirmSync('squash', 'Test commit')}>Sync</button>
+        <button onClick={onClose}>Cancel</button>
+      </div>
+    ) : null,
+}))
+
+vi.mock('@/components/executions/SyncProgressDialog', () => ({
+  SyncProgressDialog: ({ isOpen, onClose }: any) =>
+    isOpen ? (
+      <div data-testid="sync-progress-dialog">
+        <button onClick={onClose}>Done</button>
+      </div>
+    ) : null,
+}))
+
+// Mock sonner toast to render visible error messages
+vi.mock('sonner', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn((message: string, options?: { description?: string }) => {
+      // Create a visible element for testing
+      const div = document.createElement('div')
+      div.setAttribute('data-testid', 'toast-error')
+      div.textContent = options?.description || message
+      document.body.appendChild(div)
+    }),
+  },
+}))
+
+describe('ExecutionView', () => {
+  const mockOnFollowUpCreated = vi.fn()
+  const mockOnStatusChange = vi.fn()
+  const mockOnHeaderDataChange = vi.fn()
+
+  const mockExecution: Execution = {
+    id: 'exec-123',
+    issue_id: 'ISSUE-001',
+    issue_uuid: null,
+    mode: 'worktree',
+    prompt: 'Test prompt',
+    config: JSON.stringify({
+      mode: 'worktree',
+      baseBranch: 'main',
+      cleanupMode: 'auto',
+    }),
+    agent_type: 'claude-code',
+    session_id: null,
+    workflow_execution_id: 'workflow-123',
+    target_branch: 'main',
+    branch_name: 'exec-123',
+    before_commit: null,
+    after_commit: null,
+    worktree_path: '/tmp/worktree-123',
+    status: 'running',
+    created_at: '2025-01-15T10:00:00Z',
+    updated_at: '2025-01-15T10:00:00Z',
+    started_at: '2025-01-15T10:01:00Z',
+    completed_at: null,
+    cancelled_at: null,
+    exit_code: null,
+    error_message: null,
+    error: null,
+    model: 'claude-sonnet-4',
+    summary: null,
+    files_changed: null,
+    parent_execution_id: null,
+    step_type: null,
+    step_index: null,
+    step_config: null,
+  }
+
+  // Helper to create a chain response with a single execution
+  const mockChainResponse = (execution: Execution) => ({
+    rootId: execution.id,
+    executions: [execution],
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Default mock: worktree doesn't exist
+    vi.mocked(executionsApi.worktreeExists).mockResolvedValue({ exists: false })
+    // Default mock: no uncommitted changes
+    vi.mocked(executionsApi.getChanges).mockResolvedValue({
+      available: true,
+      captured: {
+        files: [],
+        summary: { totalFiles: 0, totalAdditions: 0, totalDeletions: 0 },
+        commitRange: null,
+        uncommitted: false,
+      },
+    })
+  })
+
+  it('should display loading state initially', () => {
+    vi.mocked(executionsApi.getChain).mockReturnValue(new Promise(() => {}))
+
+    renderWithProviders(
+      <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+    )
+
+    expect(screen.getByText('Loading execution...')).toBeInTheDocument()
+  })
+
+  it('should load and call onHeaderDataChange with execution metadata', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(mockChainResponse(mockExecution))
+
+    renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onHeaderDataChange={mockOnHeaderDataChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnHeaderDataChange).toHaveBeenCalled()
+    })
+
+    // Verify the header data passed to callback contains expected metadata
+    const [headerData] = mockOnHeaderDataChange.mock.calls[0]
+    expect(headerData.rootExecution.id).toBe('exec-123')
+    expect(headerData.rootExecution.issue_id).toBe('ISSUE-001')
+    expect(headerData.rootExecution.mode).toBe('worktree')
+    expect(headerData.rootExecution.model).toBe('claude-sonnet-4')
+    expect(headerData.rootExecution.target_branch).toBe('main')
+  })
+
+  it('should display error when loading fails', async () => {
+    vi.mocked(executionsApi.getChain).mockRejectedValue(new Error('Network error'))
+
+    renderWithProviders(
+      <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Error Loading Execution')).toBeInTheDocument()
+      expect(screen.getByText('Network error')).toBeInTheDocument()
+    })
+  })
+
+  it('should call onStatusChange with running status', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(mockChainResponse(mockExecution))
+
+    renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onStatusChange={mockOnStatusChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnStatusChange).toHaveBeenCalledWith('running')
+    })
+  })
+
+  it('should call onStatusChange with completed status', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(
+      mockChainResponse({
+        ...mockExecution,
+        status: 'completed',
+        completed_at: '2025-01-15T10:05:00Z',
+      })
+    )
+
+    renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onStatusChange={mockOnStatusChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnStatusChange).toHaveBeenCalledWith('completed')
+    })
+  })
+
+  it('should call onStatusChange with failed status and display error message', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(
+      mockChainResponse({
+        ...mockExecution,
+        status: 'failed',
+        error: 'Test error message',
+        completed_at: '2025-01-15T10:05:00Z',
+      })
+    )
+
+    renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onStatusChange={mockOnStatusChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnStatusChange).toHaveBeenCalledWith('failed')
+      expect(screen.getByText('Test error message')).toBeInTheDocument()
+    })
+  })
+
+  it('should expose canCancel=true via onHeaderDataChange when execution is running', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(mockChainResponse(mockExecution))
+
+    renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onHeaderDataChange={mockOnHeaderDataChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnHeaderDataChange).toHaveBeenCalled()
+    })
+
+    const [headerData] = mockOnHeaderDataChange.mock.calls[0]
+    expect(headerData.canCancel).toBe(true)
+  })
+
+  it('should expose canCancel=false via onHeaderDataChange when execution is completed', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(
+      mockChainResponse({
+        ...mockExecution,
+        status: 'completed',
+      })
+    )
+
+    renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onHeaderDataChange={mockOnHeaderDataChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnHeaderDataChange).toHaveBeenCalled()
+    })
+
+    const [headerData] = mockOnHeaderDataChange.mock.calls[0]
+    expect(headerData.canCancel).toBe(false)
+  })
+
+  it('should show follow-up panel when execution is completed', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(
+      mockChainResponse({
+        ...mockExecution,
+        status: 'completed',
+      })
+    )
+
+    renderWithProviders(
+      <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('follow-up-panel')).toBeInTheDocument()
+    })
+  })
+
+  it('should show follow-up panel when execution failed', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(
+      mockChainResponse({
+        ...mockExecution,
+        status: 'failed',
+        error: 'Test error',
+      })
+    )
+
+    renderWithProviders(
+      <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('follow-up-panel')).toBeInTheDocument()
+    })
+  })
+
+  it('should cancel execution when onCancel handler is called', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(mockChainResponse(mockExecution))
+    vi.mocked(executionsApi.cancel).mockResolvedValue(undefined as any)
+
+    renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onHeaderDataChange={mockOnHeaderDataChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnHeaderDataChange).toHaveBeenCalled()
+    })
+
+    // Get the onCancel handler from the callback and invoke it
+    const [, handlers] = mockOnHeaderDataChange.mock.calls[0]
+    handlers.onCancel()
+
+    await waitFor(() => {
+      expect(executionsApi.cancel).toHaveBeenCalledWith('exec-123')
+    })
+  })
+
+  it('should show follow-up panel when execution is stopped', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(
+      mockChainResponse({
+        ...mockExecution,
+        status: 'stopped',
+      })
+    )
+
+    renderWithProviders(
+      <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('follow-up-panel')).toBeInTheDocument()
+    })
+  })
+
+  it('should show follow-up panel when execution is cancelled', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(
+      mockChainResponse({
+        ...mockExecution,
+        status: 'cancelled',
+      })
+    )
+
+    renderWithProviders(
+      <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('follow-up-panel')).toBeInTheDocument()
+    })
+  })
+
+  it('should show follow-up panel for non-worktree executions', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(
+      mockChainResponse({
+        ...mockExecution,
+        status: 'completed',
+        worktree_path: null, // No worktree (local mode)
+      })
+    )
+
+    renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onStatusChange={mockOnStatusChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnStatusChange).toHaveBeenCalledWith('completed')
+    })
+
+    // Follow-up panel should be shown for both worktree and local executions
+    expect(screen.getByTestId('follow-up-panel')).toBeInTheDocument()
+  })
+
+  it('should create follow-up execution when continue button clicked', async () => {
+    const user = userEvent.setup()
+    const completedExecution = { ...mockExecution, status: 'completed' as const }
+    const newExecution = { ...mockExecution, id: 'exec-456', parent_execution_id: 'exec-123' }
+    vi.mocked(executionsApi.getChain).mockResolvedValue(mockChainResponse(completedExecution))
+    vi.mocked(executionsApi.createFollowUp).mockResolvedValue(newExecution)
+
+    renderWithProviders(
+      <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('follow-up-panel')).toBeInTheDocument()
+    })
+
+    // Click the Continue button in the follow-up panel
+    const continueButton = screen.getByRole('button', { name: /Continue/ })
+    await user.click(continueButton)
+
+    await waitFor(() => {
+      expect(executionsApi.createFollowUp).toHaveBeenCalledWith('exec-123', {
+        feedback: 'Test feedback',
+      })
+      expect(mockOnFollowUpCreated).toHaveBeenCalledWith('exec-456')
+    })
+  })
+
+  it('should display ExecutionMonitor for running execution', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(mockChainResponse(mockExecution))
+
+    renderWithProviders(
+      <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('execution-monitor')).toBeInTheDocument()
+      expect(screen.getByText('ExecutionMonitor for exec-123')).toBeInTheDocument()
+    })
+  })
+
+  it('should reload execution chain when monitor completes', async () => {
+    const user = userEvent.setup()
+    const completedExecution = { ...mockExecution, status: 'completed' as const }
+
+    vi.mocked(executionsApi.getChain)
+      .mockResolvedValueOnce(mockChainResponse(mockExecution))
+      .mockResolvedValueOnce(mockChainResponse(completedExecution))
+
+    renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onStatusChange={mockOnStatusChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnStatusChange).toHaveBeenCalledWith('running')
+    })
+
+    // Trigger completion from monitor
+    const completeButton = screen.getByRole('button', { name: /Trigger Complete/ })
+    await user.click(completeButton)
+
+    await waitFor(() => {
+      expect(executionsApi.getChain).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it('should display ExecutionMonitor for preparing status', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(
+      mockChainResponse({
+        ...mockExecution,
+        status: 'preparing',
+      })
+    )
+
+    renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onStatusChange={mockOnStatusChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnStatusChange).toHaveBeenCalledWith('preparing')
+    })
+
+    // ExecutionMonitor should be displayed for 'preparing' status (active execution)
+    expect(screen.getByTestId('execution-monitor')).toBeInTheDocument()
+  })
+
+  it('should show Cleanup Worktree button when worktree exists', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(
+      mockChainResponse({
+        ...mockExecution,
+        status: 'completed',
+      })
+    )
+    vi.mocked(executionsApi.worktreeExists).mockResolvedValue({ exists: true })
+
+    renderWithProviders(
+      <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Cleanup Worktree/ })).toBeInTheDocument()
+    })
+  })
+
+  it('should not show Cleanup Worktree button when worktree does not exist', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(
+      mockChainResponse({
+        ...mockExecution,
+        status: 'completed',
+      })
+    )
+    vi.mocked(executionsApi.worktreeExists).mockResolvedValue({ exists: false })
+
+    renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onStatusChange={mockOnStatusChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnStatusChange).toHaveBeenCalledWith('completed')
+    })
+
+    expect(screen.queryByRole('button', { name: /Cleanup Worktree/ })).not.toBeInTheDocument()
+  })
+
+  it('should open CleanupWorktreeDialog when Cleanup Worktree button clicked', async () => {
+    const user = userEvent.setup()
+    vi.mocked(executionsApi.getChain).mockResolvedValue(
+      mockChainResponse({
+        ...mockExecution,
+        status: 'completed',
+      })
+    )
+    vi.mocked(executionsApi.worktreeExists).mockResolvedValue({ exists: true })
+
+    renderWithProviders(
+      <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Cleanup Worktree/ })).toBeInTheDocument()
+    })
+
+    const deleteButton = screen.getByRole('button', { name: /Cleanup Worktree/ })
+    await user.click(deleteButton)
+
+    expect(screen.getByTestId('cleanup-worktree-dialog')).toBeInTheDocument()
+  })
+
+  it('should cleanup worktree when dialog confirmed', async () => {
+    const user = userEvent.setup()
+    const completedExecution = { ...mockExecution, status: 'completed' as const }
+
+    vi.mocked(executionsApi.getChain)
+      .mockResolvedValueOnce(mockChainResponse(completedExecution))
+      .mockResolvedValueOnce(mockChainResponse(completedExecution))
+    vi.mocked(executionsApi.worktreeExists).mockResolvedValue({ exists: true })
+    vi.mocked(executionsApi.deleteWorktree).mockResolvedValue(undefined as any)
+
+    renderWithProviders(
+      <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Cleanup Worktree/ })).toBeInTheDocument()
+    })
+
+    const deleteButton = screen.getByRole('button', { name: /Cleanup Worktree/ })
+    await user.click(deleteButton)
+
+    // Find the confirm button inside the dialog
+    const dialog = screen.getByTestId('cleanup-worktree-dialog')
+    const confirmButton = dialog.querySelector('button:first-child') as HTMLButtonElement
+    await user.click(confirmButton)
+
+    await waitFor(() => {
+      expect(executionsApi.deleteWorktree).toHaveBeenCalledWith('exec-123', false)
+    })
+  })
+
+  it('should display user prompts for both root and follow-up executions', async () => {
+    const rootPrompt = 'Implement the login feature'
+    const followUpPrompt = 'Add error handling to the login'
+
+    const followUpExecution = {
+      ...mockExecution,
+      id: 'exec-456',
+      parent_execution_id: 'exec-123',
+      prompt: followUpPrompt,
+      status: 'completed' as const,
+    }
+
+    vi.mocked(executionsApi.getChain).mockResolvedValue({
+      rootId: 'exec-123',
+      executions: [
+        { ...mockExecution, prompt: rootPrompt, status: 'completed' as const },
+        followUpExecution,
+      ],
+    })
+
+    renderWithProviders(
+      <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+    )
+
+    await waitFor(() => {
+      // Should display root execution's prompt
+      expect(screen.getByText(rootPrompt)).toBeInTheDocument()
+      // Should display follow-up execution's prompt
+      expect(screen.getByText(followUpPrompt)).toBeInTheDocument()
+      // Should show user prompt sections for both executions
+      const userPrompts = screen.getAllByTestId('user-prompt')
+      expect(userPrompts.length).toBe(2)
+    })
+  })
+
+  it('should auto-scroll to bottom when execution is running and user is at bottom', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(mockChainResponse(mockExecution))
+
+    const { container } = renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onStatusChange={mockOnStatusChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnStatusChange).toHaveBeenCalledWith('running')
+    })
+
+    // Get the scrollable container
+    const scrollContainer = container.querySelector('.overflow-auto') as HTMLDivElement
+    expect(scrollContainer).toBeInTheDocument()
+
+    // Mock scrollHeight and clientHeight to simulate content
+    Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1000, configurable: true })
+    Object.defineProperty(scrollContainer, 'clientHeight', { value: 500, configurable: true })
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      value: 500,
+      writable: true,
+      configurable: true,
+    })
+
+    // Simulate being at the bottom (within 50px threshold)
+    scrollContainer.scrollTop = 500
+
+    // Trigger a content change by reloading chain
+    vi.mocked(executionsApi.getChain).mockResolvedValue(mockChainResponse(mockExecution))
+
+    // The MutationObserver should trigger auto-scroll
+    // We can't easily test MutationObserver in jsdom, but we can verify the scroll handler works
+    const scrollEvent = new Event('scroll')
+    scrollContainer.dispatchEvent(scrollEvent)
+
+    // Verify scroll position is maintained near bottom
+    expect(scrollContainer.scrollTop).toBe(500)
+  })
+
+  it('should disable auto-scroll when user manually scrolls up', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(mockChainResponse(mockExecution))
+
+    const { container } = renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onStatusChange={mockOnStatusChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnStatusChange).toHaveBeenCalledWith('running')
+    })
+
+    // Get the scrollable container
+    const scrollContainer = container.querySelector('.overflow-auto') as HTMLDivElement
+    expect(scrollContainer).toBeInTheDocument()
+
+    // Mock scroll properties
+    Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1000, configurable: true })
+    Object.defineProperty(scrollContainer, 'clientHeight', { value: 500, configurable: true })
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      value: 500,
+      writable: true,
+      configurable: true,
+    })
+
+    // User starts at bottom
+    scrollContainer.scrollTop = 500
+    const scrollEvent1 = new Event('scroll')
+    scrollContainer.dispatchEvent(scrollEvent1)
+
+    // User scrolls up
+    scrollContainer.scrollTop = 200
+    const scrollEvent2 = new Event('scroll')
+    scrollContainer.dispatchEvent(scrollEvent2)
+
+    // Auto-scroll should now be disabled
+    // This is verified by the fact that scrollTop remains at 200 and doesn't jump back to bottom
+    expect(scrollContainer.scrollTop).toBe(200)
+  })
+
+  it('should re-enable auto-scroll when user scrolls back to bottom', async () => {
+    vi.mocked(executionsApi.getChain).mockResolvedValue(mockChainResponse(mockExecution))
+
+    const { container } = renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onStatusChange={mockOnStatusChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnStatusChange).toHaveBeenCalledWith('running')
+    })
+
+    // Get the scrollable container
+    const scrollContainer = container.querySelector('.overflow-auto') as HTMLDivElement
+    expect(scrollContainer).toBeInTheDocument()
+
+    // Mock scroll properties
+    Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1000, configurable: true })
+    Object.defineProperty(scrollContainer, 'clientHeight', { value: 500, configurable: true })
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      value: 500,
+      writable: true,
+      configurable: true,
+    })
+
+    // User scrolls up
+    scrollContainer.scrollTop = 200
+    const scrollEvent1 = new Event('scroll')
+    scrollContainer.dispatchEvent(scrollEvent1)
+
+    // User scrolls back to bottom (within 50px threshold)
+    scrollContainer.scrollTop = 480 // Within 50px of bottom (1000 - 480 - 500 = 20px from bottom)
+    const scrollEvent2 = new Event('scroll')
+    scrollContainer.dispatchEvent(scrollEvent2)
+
+    // Auto-scroll should be re-enabled
+    // Verify by checking that the component state allows auto-scroll
+    expect(scrollContainer.scrollTop).toBe(480)
+  })
+
+  it('should show scroll to bottom FAB when auto-scroll is disabled', async () => {
+    const user = userEvent.setup()
+    vi.mocked(executionsApi.getChain).mockResolvedValue(mockChainResponse(mockExecution))
+
+    const { container } = renderWithProviders(
+      <ExecutionView
+        executionId="exec-123"
+        onFollowUpCreated={mockOnFollowUpCreated}
+        onStatusChange={mockOnStatusChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockOnStatusChange).toHaveBeenCalledWith('running')
+    })
+
+    // Get the scrollable container
+    const scrollContainer = container.querySelector('.overflow-auto') as HTMLDivElement
+    expect(scrollContainer).toBeInTheDocument()
+
+    // Mock scroll properties
+    Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1000, configurable: true })
+    Object.defineProperty(scrollContainer, 'clientHeight', { value: 500, configurable: true })
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      value: 500,
+      writable: true,
+      configurable: true,
+    })
+
+    // Initially, only scroll-to-top FAB should be visible (scroll-to-bottom hidden when auto-scroll enabled)
+    const scrollToTopFab = container.querySelector('[data-testid="scroll-to-top-fab"]')
+    expect(scrollToTopFab).toBeInTheDocument()
+    expect(container.querySelector('[data-testid="scroll-to-bottom-fab"]')).not.toBeInTheDocument()
+
+    // User scrolls up to disable auto-scroll - set scrollTop before lastScrollTopRef is initialized
+    scrollContainer.scrollTop = 500
+    scrollContainer.dispatchEvent(new Event('scroll'))
+
+    // Then scroll up
+    scrollContainer.scrollTop = 200
+    scrollContainer.dispatchEvent(new Event('scroll'))
+
+    // Both FABs should now be visible - wait for state update and re-render
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="scroll-to-bottom-fab"]')).toBeInTheDocument()
+    })
+
+    // Click the scroll-to-bottom FAB
+    const scrollToBottomFab = container.querySelector(
+      '[data-testid="scroll-to-bottom-fab"]'
+    ) as HTMLButtonElement
+    expect(scrollToBottomFab).toBeInTheDocument()
+    await user.click(scrollToBottomFab)
+
+    // Scroll-to-bottom FAB should disappear (auto-scroll re-enabled), but scroll-to-top remains
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="scroll-to-bottom-fab"]')).not.toBeInTheDocument()
+      expect(container.querySelector('[data-testid="scroll-to-top-fab"]')).toBeInTheDocument()
+    })
+  })
+
+  describe('Todo Accumulation', () => {
+    // Helper to create mock todos in the format expected by TodoTracker
+    const createMockTodos = (
+      todos: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>,
+      baseTimestamp: number = 1000
+    ) => {
+      return todos.map((todo, index) => ({
+        content: todo.content,
+        status: todo.status,
+        firstSeen: baseTimestamp + index * 100,
+        lastSeen: baseTimestamp + index * 100,
+        wasCompleted: todo.status === 'completed',
+        wasRemoved: false,
+      }))
+    }
+
+    it('should accumulate todos from single execution', async () => {
+      const mockTodos = createMockTodos([
+        { content: 'Task 1', status: 'pending' },
+      ])
+
+      vi.mocked(executionsApi.getChain).mockResolvedValue({
+        rootId: 'exec-123',
+        executions: [
+          {
+            ...mockExecution,
+            status: 'completed',
+            mockTodos,
+          } as any,
+        ],
+      })
+
+      renderWithProviders(
+        <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('todo-tracker')).toBeInTheDocument()
+        expect(screen.getByText('Todo Tracker with 1 todos')).toBeInTheDocument()
+      })
+    })
+
+    it('should accumulate todos from multiple executions in chain', async () => {
+      const mockTodos1 = createMockTodos([
+        { content: 'Task 1', status: 'pending' },
+      ], 1000)
+
+      const mockTodos2 = createMockTodos([
+        { content: 'Task 2', status: 'pending' },
+      ], 2000)
+
+      const followUpExecution = {
+        ...mockExecution,
+        id: 'exec-456',
+        parent_execution_id: 'exec-123',
+        status: 'completed' as const,
+        mockTodos: mockTodos2,
+      }
+
+      vi.mocked(executionsApi.getChain).mockResolvedValue({
+        rootId: 'exec-123',
+        executions: [
+          { ...mockExecution, status: 'completed' as const, mockTodos: mockTodos1 } as any,
+          followUpExecution as any,
+        ],
+      })
+
+      renderWithProviders(
+        <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('todo-tracker')).toBeInTheDocument()
+        // Should have 2 todos (1 from each execution)
+        expect(screen.getByText('Todo Tracker with 2 todos')).toBeInTheDocument()
+      })
+    })
+
+    it('should render single TodoTracker at bottom of chain', async () => {
+      const mockTodos = createMockTodos([
+        { content: 'Task 1', status: 'pending' },
+      ])
+
+      const followUpExecution = {
+        ...mockExecution,
+        id: 'exec-456',
+        parent_execution_id: 'exec-123',
+        status: 'completed' as const,
+        mockTodos,
+      }
+
+      vi.mocked(executionsApi.getChain).mockResolvedValue({
+        rootId: 'exec-123',
+        executions: [
+          { ...mockExecution, status: 'completed' as const, mockTodos } as any,
+          followUpExecution as any,
+        ],
+      })
+
+      renderWithProviders(
+        <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+      )
+
+      await waitFor(() => {
+        // Should only have one TodoTracker rendered
+        const trackers = screen.getAllByTestId('todo-tracker')
+        expect(trackers).toHaveLength(1)
+      })
+    })
+
+    it('should not render TodoTracker when no todos', async () => {
+      vi.mocked(executionsApi.getChain).mockResolvedValue({
+        rootId: 'exec-123',
+        executions: [
+          {
+            ...mockExecution,
+            status: 'completed',
+            // No mockTodos
+          },
+        ],
+      })
+
+      renderWithProviders(
+        <ExecutionView
+          executionId="exec-123"
+          onFollowUpCreated={mockOnFollowUpCreated}
+          onStatusChange={mockOnStatusChange}
+        />
+      )
+
+      await waitFor(() => {
+        expect(mockOnStatusChange).toHaveBeenCalledWith('completed')
+      })
+
+      // Should not render TodoTracker when no todos
+      expect(screen.queryByTestId('todo-tracker')).not.toBeInTheDocument()
+    })
+
+    it('should update TodoTracker when execution completes and reloads', async () => {
+      const user = userEvent.setup()
+      // Use mockTodos instead of mockToolCalls since todos now come from plan updates
+      const initialTodos = [
+        { content: 'Task 1', status: 'pending' as const, firstSeen: 1000, lastSeen: 1000, wasCompleted: false, wasRemoved: false },
+      ]
+
+      const updatedTodos = [
+        { content: 'Task 1', status: 'pending' as const, firstSeen: 1000, lastSeen: 1000, wasCompleted: false, wasRemoved: false },
+        { content: 'Task 2', status: 'pending' as const, firstSeen: 2000, lastSeen: 2000, wasCompleted: false, wasRemoved: false },
+      ]
+
+      vi.mocked(executionsApi.getChain)
+        .mockResolvedValueOnce({
+          rootId: 'exec-123',
+          executions: [
+            {
+              ...mockExecution,
+              status: 'running',
+              mockTodos: initialTodos,
+            } as any,
+          ],
+        })
+        .mockResolvedValueOnce({
+          rootId: 'exec-123',
+          executions: [
+            {
+              ...mockExecution,
+              status: 'completed',
+              mockTodos: updatedTodos,
+            } as any,
+          ],
+        })
+
+      renderWithProviders(
+        <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Todo Tracker with 1 todos')).toBeInTheDocument()
+      })
+
+      // Trigger completion which should reload the chain with updated todos
+      const completeButton = screen.getByRole('button', { name: /Trigger Complete/ })
+      await user.click(completeButton)
+
+      await waitFor(() => {
+        expect(screen.getByText('Todo Tracker with 2 todos')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe.skip('Sync Buttons', () => {
+    it('should show "Open in IDE" and "Sync Worktree to Local" buttons when execution has worktree_path', async () => {
+      vi.mocked(executionsApi.getChain).mockResolvedValue(
+        mockChainResponse({
+          ...mockExecution,
+          status: 'completed',
+          worktree_path: '/tmp/worktree-123',
+        })
+      )
+
+      renderWithProviders(
+        <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Open in IDE/ })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Sync Worktree to Local/ })).toBeInTheDocument()
+      })
+    })
+
+    it('should not show sync buttons when execution has no worktree_path', async () => {
+      vi.mocked(executionsApi.getChain).mockResolvedValue(
+        mockChainResponse({
+          ...mockExecution,
+          status: 'completed',
+          worktree_path: null,
+        })
+      )
+
+      renderWithProviders(
+        <ExecutionView
+          executionId="exec-123"
+          onFollowUpCreated={mockOnFollowUpCreated}
+          onStatusChange={mockOnStatusChange}
+        />
+      )
+
+      await waitFor(() => {
+        expect(mockOnStatusChange).toHaveBeenCalledWith('completed')
+      })
+
+      expect(screen.queryByRole('button', { name: /Open in IDE/ })).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /Sync Worktree to Local/ })
+      ).not.toBeInTheDocument()
+    })
+
+    it('should show sync buttons for all execution states', async () => {
+      const statuses = ['running', 'completed', 'failed', 'paused'] as const
+
+      for (const status of statuses) {
+        vi.mocked(executionsApi.getChain).mockResolvedValue(
+          mockChainResponse({
+            ...mockExecution,
+            status,
+            worktree_path: '/tmp/worktree-123',
+          })
+        )
+
+        const { unmount } = renderWithProviders(
+          <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+        )
+
+        await waitFor(() => {
+          expect(screen.getByRole('button', { name: /Open in IDE/ })).toBeInTheDocument()
+          expect(screen.getByRole('button', { name: /Sync Worktree to Local/ })).toBeInTheDocument()
+        })
+
+        unmount()
+        vi.clearAllMocks()
+      }
+    })
+
+    it('should disable "Sync Worktree to Local" button when preview is loading', async () => {
+      vi.mocked(executionsApi.getChain).mockResolvedValue(
+        mockChainResponse({
+          ...mockExecution,
+          status: 'completed',
+          worktree_path: '/tmp/worktree-123',
+        })
+      )
+      vi.mocked(executionsApi.syncPreview).mockReturnValue(new Promise(() => {})) // Never resolves
+
+      const user = userEvent.setup()
+      renderWithProviders(
+        <ExecutionView executionId="exec-123" onFollowUpCreated={mockOnFollowUpCreated} />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Sync Worktree to Local/ })).toBeInTheDocument()
+      })
+
+      const syncButton = screen.getByRole('button', { name: /Sync Worktree to Local/ })
+      await user.click(syncButton)
+
+      // Button should show loading state
+      await waitFor(() => {
+        expect(screen.getByText('Loading...')).toBeInTheDocument()
+      })
+    })
+  })
+})

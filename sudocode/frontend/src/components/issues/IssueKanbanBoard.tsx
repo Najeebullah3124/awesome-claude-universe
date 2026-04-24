@@ -1,0 +1,137 @@
+import { memo } from 'react'
+import {
+  type DragEndEvent,
+  KanbanBoard,
+  KanbanCards,
+  KanbanHeader,
+  KanbanProvider,
+} from '@/components/ui/kanban'
+import { IssueCard } from './IssueCard'
+import type { Issue, IssueStatus } from '@sudocode-ai/types'
+import type { Execution } from '@/types/execution'
+import type { WorkflowStepStatus } from '@/types/workflow'
+
+/** Workflow info for an issue */
+interface IssueWorkflowInfo {
+  workflowId: string
+  workflowTitle?: string
+  stepStatus: WorkflowStepStatus
+}
+
+const columnOrder: IssueStatus[] = ['blocked', 'open', 'in_progress', 'needs_review', 'closed']
+
+// Status labels and colors
+const statusLabels: Record<IssueStatus, string> = {
+  open: 'Open',
+  in_progress: 'In Progress',
+  blocked: 'Blocked',
+  needs_review: 'Needs Review',
+  closed: 'Closed',
+}
+
+const statusColors: Record<IssueStatus, string> = {
+  open: '--chart-3',
+  in_progress: '--chart-2',
+  blocked: '--chart-1',
+  needs_review: '--chart-4',
+  closed: '--chart-5',
+}
+
+interface IssueKanbanBoardProps {
+  groupedIssues: Record<IssueStatus, Issue[]>
+  onDragEnd: (event: DragEndEvent) => void
+  onViewIssueDetails: (issue: Issue) => void
+  selectedIssue?: Issue
+  onArchiveAllClosed?: () => void
+  collapsedColumns?: Set<IssueStatus>
+  onToggleColumnCollapse?: (status: IssueStatus) => void
+  latestExecutions?: Record<string, Execution | null> // Pre-fetched executions by issue ID
+  /** Workflow info by issue ID (for issues in active workflows) */
+  issueWorkflows?: Map<string, IssueWorkflowInfo>
+  displayStatusOverrides?: Record<string, IssueStatus> // Issues showing in different column due to execution status
+}
+
+function IssueKanbanBoard({
+  groupedIssues,
+  onDragEnd,
+  onViewIssueDetails,
+  selectedIssue,
+  onArchiveAllClosed,
+  collapsedColumns = new Set(),
+  onToggleColumnCollapse,
+  latestExecutions,
+  issueWorkflows,
+  displayStatusOverrides,
+}: IssueKanbanBoardProps) {
+  const renderDragOverlay = (activeId: string | null) => {
+    if (!activeId) return null
+
+    // Find the issue being dragged
+    for (const [status, statusIssues] of Object.entries(groupedIssues)) {
+      const issue = statusIssues.find((i) => i.id === activeId)
+      if (issue) {
+        const index = statusIssues.indexOf(issue)
+        return (
+          <IssueCard
+            issue={issue}
+            index={index}
+            status={status}
+            onViewDetails={onViewIssueDetails}
+            isOpen={false}
+            showExecutionPreview={true}
+            latestExecution={latestExecutions?.[issue.id]}
+            workflowInfo={issueWorkflows?.get(issue.id)}
+            displayStatusOverride={displayStatusOverrides?.[issue.id]}
+          />
+        )
+      }
+    }
+    return null
+  }
+
+  return (
+    <KanbanProvider
+      onDragEnd={onDragEnd}
+      renderDragOverlay={renderDragOverlay}
+      collapsedColumns={collapsedColumns}
+      totalColumns={columnOrder.length}
+    >
+      {columnOrder.map((status) => {
+        const statusIssues = groupedIssues[status] || []
+        const isCollapsed = collapsedColumns.has(status)
+        return (
+          <KanbanBoard key={status} id={status} data-column-id={status} collapsed={isCollapsed}>
+            <KanbanHeader
+              name={statusLabels[status]}
+              color={statusColors[status]}
+              count={statusIssues.length}
+              onArchiveAll={status === 'closed' ? onArchiveAllClosed : undefined}
+              collapsed={isCollapsed}
+              onToggleCollapse={
+                onToggleColumnCollapse ? () => onToggleColumnCollapse(status) : undefined
+              }
+            />
+            <KanbanCards collapsed={isCollapsed}>
+              {statusIssues.map((issue, index) => (
+                <IssueCard
+                  key={issue.id}
+                  issue={issue}
+                  index={index}
+                  status={status}
+                  onViewDetails={onViewIssueDetails}
+                  isOpen={selectedIssue?.id === issue.id}
+                  showExecutionPreview={true}
+                  latestExecution={latestExecutions?.[issue.id]}
+                  workflowInfo={issueWorkflows?.get(issue.id)}
+                  displayStatusOverride={displayStatusOverrides?.[issue.id]}
+                />
+              ))}
+            </KanbanCards>
+          </KanbanBoard>
+        )
+      })}
+    </KanbanProvider>
+  )
+}
+
+export default memo(IssueKanbanBoard)

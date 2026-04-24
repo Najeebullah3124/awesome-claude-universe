@@ -1,0 +1,81 @@
+{
+  "name": "@sudocode-ai/types",
+  "version": "0.2.0",
+  "description": "TypeScript type definitions for sudocode",
+  "types": "src/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.d.ts"
+    },
+    "./events": {
+      "types": "./src/events.d.ts",
+      "default": "./src/events.d.ts"
+    },
+    "./agents": {
+      "types": "./src/agents.d.ts",
+      "default": "./src/agents.d.ts"
+    },
+    "./workflows": {
+      "types": "./src/workflows.d.ts",
+      "default": "./src/workflows.d.ts"
+    },
+    "./integrations": {
+      "types": "./src/integrations.d.ts",
+      "default": "./src/integrations.d.ts"
+    },
+    "./voice": {
+      "types": "./src/voice.d.ts",
+      "default": "./src/voice.d.ts"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "default": "./dist/schema.js"
+    },
+    "./migrations": {
+      "types": "./dist/migrations.d.ts",
+      "default": "./dist/migrations.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:run": "vitest --run"
+  },
+  "keywords": [
+    "sudocode",
+    "types",
+    "typescript"
+  ],
+  "author": "sudocode AI",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sudocode-ai/sudocode.git",
+    "directory": "types"
+  },
+  "homepage": "https://sudocode.ai",
+  "bugs": {
+    "url": "https://github.com/sudocode-ai/sudocode/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src/index.d.ts",
+    "src/events.d.ts",
+    "src/agents.d.ts",
+    "src/artifacts.d.ts",
+    "src/workflows.d.ts",
+    "src/integrations.d.ts",
+    "src/voice.d.ts",
+    "dist"
+  ],
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "better-sqlite3": "^11.7.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.2.4"
+  }
+}
