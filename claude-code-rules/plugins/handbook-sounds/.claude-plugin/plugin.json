@@ -1,0 +1,20 @@
+{
+  "name": "handbook-sounds",
+  "version": "1.19.6",
+  "description": "Audio feedback for Claude Code events on Windows using PowerShell sounds",
+  "author": {
+    "name": "nikiforovall",
+    "url": "https://github.com/nikiforovall"
+  },
+  "homepage": "https://nikiforovall.blog/claude-code-rules/",
+  "repository": "https://github.com/nikiforovall/claude-code-rules",
+  "license": "MIT",
+  "keywords": [
+    "sounds",
+    "audio",
+    "notifications",
+    "feedback",
+    "windows",
+    "powershell"
+  ]
+}

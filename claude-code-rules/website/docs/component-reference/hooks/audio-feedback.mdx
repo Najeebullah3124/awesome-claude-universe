@@ -1,0 +1,102 @@
+---
+title: "Audio Feedback"
+sidebar_position: 2
+description: "Play system sounds when Claude finishes responding or sends notifications on Windows"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+
+# Audio Feedback Hook
+
+<span className="badge badge--handbook-sounds">handbook-sounds</span>
+
+Play Windows system sounds when Claude finishes responding or sends notifications.
+
+## Hook Configuration
+
+```json
+{
+  "description": "Audio feedback when Claude finishes responding and sends notifications",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/play-sound.sh\" --stop"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/play-sound.sh\" --notification"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## When Sounds Play
+
+- **Stop Hook**: Plays when Claude finishes responding to your prompt (default: `notify.wav`)
+- **Notification Hook**: Plays when Claude sends notifications (default: `Windows Exclamation.wav`) - permission requests, idle timeout after 60+ seconds
+
+## Prerequisites
+
+- Windows OS
+- PowerShell (included with Windows)
+
+## Configuration
+
+### Disable Sounds
+
+```bash
+export CC_HANDBOOK_SOUNDS_DISABLE_HOOKS=true
+```
+
+### Customize Sounds
+
+Customize sounds independently for each hook type:
+
+**Stop Hook** (when Claude finishes responding):
+```bash
+export CC_HANDBOOK_STOP_SOUNDS_FILE="C:/Windows/Media/notify.wav"
+```
+
+**Notification Hook** (permission requests, idle timeout):
+```bash
+export CC_HANDBOOK_NOTIFICATION_SOUNDS_FILE="C:/Windows/Media/Windows Exclamation.wav"
+```
+
+**Available Windows system sounds:**
+```bash
+# Subtle sounds
+export CC_HANDBOOK_STOP_SOUNDS_FILE="C:/Windows/Media/notify.wav"
+export CC_HANDBOOK_STOP_SOUNDS_FILE="C:/Windows/Media/Windows Notify System Generic.wav"
+
+# Attention-grabbing sounds
+export CC_HANDBOOK_NOTIFICATION_SOUNDS_FILE="C:/Windows/Media/Windows Exclamation.wav"
+export CC_HANDBOOK_NOTIFICATION_SOUNDS_FILE="C:/Windows/Media/Windows Ding.wav"
+export CC_HANDBOOK_NOTIFICATION_SOUNDS_FILE="C:/Windows/Media/chimes.wav"
+
+# Or use custom WAV files
+export CC_HANDBOOK_STOP_SOUNDS_FILE="C:/path/to/your/custom-stop.wav"
+export CC_HANDBOOK_NOTIFICATION_SOUNDS_FILE="C:/path/to/your/custom-notification.wav"
+```
+
+## Troubleshooting
+
+**No sound plays**: Check volume, verify sound file exists, ensure PowerShell is in PATH
+
+**Too loud/quiet**: Adjust in Windows Settings > System > Sound
+
+## Related
+
+- [Stop Hook Reference](https://docs.claude.com/en/docs/claude-code/hooks#stop)
+- [Notification Hook Reference](https://docs.claude.com/en/docs/claude-code/hooks#notification)

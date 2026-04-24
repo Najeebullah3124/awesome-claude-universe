@@ -1,0 +1,19 @@
+{
+  "name": "handbook-csharp-lsp",
+  "version": "1.19.5",
+  "description": "C# Language Server Protocol support using csharp-ls for code intelligence features",
+  "author": {
+    "name": "nikiforovall",
+    "url": "https://github.com/nikiforovall"
+  },
+  "homepage": "https://nikiforovall.blog/claude-code-rules/",
+  "repository": "https://github.com/nikiforovall/claude-code-rules",
+  "license": "MIT",
+  "keywords": [
+    "csharp",
+    "lsp",
+    "language-server",
+    "code-intelligence",
+    "dotnet"
+  ]
+}

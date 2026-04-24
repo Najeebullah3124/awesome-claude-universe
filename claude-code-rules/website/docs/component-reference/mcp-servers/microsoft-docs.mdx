@@ -1,0 +1,36 @@
+---
+title: "microsoft_docs_mcp"
+sidebar_position: 1
+description: "Access Microsoft Learn documentation for .NET, Azure, C#, and other Microsoft technologies through official API endpoints"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+
+# Microsoft Docs MCP Server
+
+<span className="badge badge--handbook-microsoft-docs">handbook-microsoft-docs</span>
+
+Access Microsoft Learn documentation for .NET, Azure, and Microsoft technologies.
+
+Query official Microsoft documentation for .NET APIs, Azure services, C# features, and more.
+
+## Configuration
+
+```json
+{
+  "mcpServers": {
+    "microsoft_docs_mcp": {
+      "type": "http",
+      "url": "https://learn.microsoft.com/api/mcp"
+    }
+  }
+}
+```
+
+## Example Usage
+
+```
+"How do I use HttpClient in .NET 8?"
+"Show me Azure Key Vault integration for ASP.NET Core"
+"What's new in C# 12?"
+```

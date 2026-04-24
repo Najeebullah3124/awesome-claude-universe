@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(npm run build)",
+      "Skill(update-component-reference)",
+      "Skill(version-bump)",
+      "Skill(handbook:skill-creator)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "outputStyle": "default"
+}
