@@ -1,0 +1,57 @@
+# Version-locked deployment workflow for Hugo site with vendored Congo theme
+# Hugo 0.160.1 + Congo v2.12.2 for reproducible builds
+name: Deploy Hugo site
+
+on:
+  push:
+    branches:
+      - main  # Set this to your default branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+    env:
+      HUGO_CACHEDIR: ${{ github.workspace }}/.hugo_cache
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0    # Fetch all history for .GitInfo and .Lastmod
+
+      - name: Read pinned Hugo version
+        id: versions
+        run: |
+          HUGO_VERSION=$(cat .hugo-version)
+          echo "hugo_version=${HUGO_VERSION}" >> $GITHUB_OUTPUT
+          echo "Using Hugo version: ${HUGO_VERSION}"
+      
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v3.0.0
+        with:
+          hugo-version: ${{ steps.versions.outputs.hugo_version }}
+          extended: true
+
+      - name: Verify vendored theme
+        run: |
+          test -f _vendor/modules.txt
+
+      - name: Build
+        run: ./scripts/hugo.sh --minify --buildFuture
+
+      - name: Copy CNAME file
+        run: |
+          if [ -f "CNAME" ]; then
+            echo "Copying CNAME file to publish directory..."
+            cp CNAME public/
+          fi
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4.0.0
+        if: github.ref == 'refs/heads/main'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          publish_branch: gh-pages  # deploying to gh-pages branch
+          cname: cloudartisan.com   # Explicit CNAME setting for custom domain
+          force_orphan: true        # Force clean deployment

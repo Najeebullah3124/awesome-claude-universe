@@ -1,0 +1,18 @@
+/* Custom CSS to fix the backtick issue in inline code - minimal approach */
+code::before, code::after {
+  content: none !important;
+}
+
+/* Base code styling */
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+}
+
+/* Smaller project thumbnails */
+.list article img {
+  max-width: 60px !important;
+  max-height: 60px !important;
+  width: 60px !important;
+}

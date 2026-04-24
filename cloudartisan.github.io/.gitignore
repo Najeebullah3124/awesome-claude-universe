@@ -1,0 +1,31 @@
+_site/
+.sass-cache/
+.jekyll-cache/
+.jekyll-metadata
+Gemfile.lock
+
+# Hugo
+.hugo_build.lock
+.hugo_cache/
+/public/
+/resources/
+/jsconfig.json
+hugo_stats.json
+/themes/
+
+# Python
+/venv/
+/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Credentials/keys/etc
+.env
+
+# Claude Code local settings
+.claude/

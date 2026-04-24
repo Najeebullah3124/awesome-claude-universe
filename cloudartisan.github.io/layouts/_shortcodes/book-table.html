@@ -1,0 +1,24 @@
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Author</th>
+<th>Year</th>
+<th>Pages</th>
+<th>Genre</th>
+<th>Why It's Essential</th>
+</tr>
+</thead>
+<tbody>
+{{- range hugo.Data.books.books }}
+<tr>
+<td><strong>{{ .title }}</strong></td>
+<td>{{ .author | default "—" }}</td>
+<td>{{ .year | default "—" }}</td>
+<td>{{ .pages | default "—" }}</td>
+<td>{{ .genre | default "—" }}</td>
+<td>{{ .why_essential }}</td>
+</tr>
+{{- end }}
+</tbody>
+</table>

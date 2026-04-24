@@ -1,0 +1,155 @@
+baseURL: https://cloudartisan.com/
+languageCode: en-us
+title: Cloud Artisan
+timezone: Australia/Sydney
+
+# Google Analytics configuration (proper Congo/Hugo way)
+services:
+  googleAnalytics:
+    id: G-QSQSFQWPEH
+
+enableRobotsTXT: true
+
+# RSS configuration
+outputFormats:
+  RSS:
+    mediatype: "application/rss+xml"
+    baseName: "feed"  # Changes default filename from index.xml to feed.xml
+
+# Output formats for specific page types
+outputs:
+  home:
+    - HTML
+    - RSS
+  section:
+    - HTML
+    - RSS
+  taxonomy:
+    - HTML
+    - RSS
+
+# Allow raw HTML in content
+markup:
+  goldmark:
+    renderer:
+      unsafe: true
+  highlight:
+    noClasses: false
+
+# Suppress warnings
+ignoreLogs: 
+  - 'warning-goldmark-raw-html'
+  - 'warning-partial-superfluous-prefix'
+
+# Congo theme configuration
+# Following "Getting Started" guide from https://jpanther.github.io/congo/docs/installation/
+module:
+  imports:
+    - path: github.com/jpanther/congo/v2
+
+# Theme-specific configuration
+params:
+  description: "Cloud Computing, Retro Computing, Software Development, Martial Arts"
+  copyright: "&copy; David Taylor 2010-{year}"
+  
+  colorScheme: ocean
+  defaultAppearance: light
+  autoSwitchAppearance: true
+  
+  # Custom CSS
+  customCSS:
+    - assets/css/custom.css
+  
+  homepage:
+    layout: profile
+    showRecent: false
+  
+  article:
+    showDate: true
+    showAuthor: true
+    showBreadcrumbs: true
+    showDraftLabel: true
+    showEdit: false
+    showTableOfContents: true
+    showReadingTime: true
+    sharingLinks: 
+      - twitter  # This still uses 'twitter' as that's how the Congo theme identifies the X/Twitter sharing button
+      - linkedin
+      - reddit
+      
+  # Hide dates and reading time on specific page types
+  pages:
+    showDate: false
+    showReadingTime: false
+    
+  # Specific settings for projects section
+  list:
+    showDate: false
+    showReadingTime: false
+    groupByYear: false
+
+  # Configure the profile mode
+  profileMode:
+    enabled: true
+    title: David Taylor
+    subtitle: "Cloud Artisan"
+    imageUrl: "/images/profile.png"
+    imageTitle: David Taylor
+
+  footer:
+    showCopyright: true
+    showThemeAttribution: true
+    showAppearanceSwitcher: true
+    showScrollToTop: true
+
+  social:
+    - name: GitHub
+      url: https://github.com/cloudartisan
+      icon: brand-github
+    - name: Mastodon
+      url: https://fosstodon.org/@cloudartisan
+      rel: me noopener
+      icon: brand-mastodon
+    - name: X (Twitter)
+      url: https://x.com/davidltaylor
+      icon: x-twitter
+    - name: LinkedIn
+      url: https://www.linkedin.com/in/cloudartisan/
+      icon: brand-linkedin
+    - name: RSS
+      url: /feed.xml
+      icon: rss-simple
+
+languages:
+  en:
+    languageName: English
+    weight: 1
+    params:
+      author:
+        name: David Taylor
+        image: images/profile.png
+        headline: Cloud Artisan
+        links:
+          - github: https://github.com/cloudartisan
+          - mastodon: https://fosstodon.org/@cloudartisan
+          - x-twitter: https://x.com/davidltaylor
+          - linkedin: https://www.linkedin.com/in/cloudartisan/
+          - rss-simple: /feed.xml
+
+menu:
+  main:
+    - name: Posts
+      url: /posts/
+      weight: 10
+    - name: Projects
+      url: /projects/
+      weight: 20
+    - name: Movies
+      url: /movies/
+      weight: 25
+    - name: Books
+      url: /books/
+      weight: 27
+    - name: About
+      url: /about/
+      weight: 30
